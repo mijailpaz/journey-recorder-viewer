@@ -1,4 +1,6 @@
 import { memo } from 'react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
+import type { TraceEvent } from '../types/trace'
 
 export type TimelineMarker = {
   id: string
@@ -8,6 +10,11 @@ export type TimelineMarker = {
   timestamp: number | null
   traceId?: string | number
   color?: string
+  from?: string
+  to?: string
+  event?: TraceEvent
+  relatedRequests?: TraceEvent[]
+  triggeredBy?: TraceEvent | null
 }
 
 export interface TimelineProps {
@@ -15,7 +22,11 @@ export interface TimelineProps {
   requests: TimelineMarker[]
   timeRangeMs: number | null
   playbackPercent?: number | null
-  onMarkerClick?: (timestamp: number, marker?: TimelineMarker) => void
+  onMarkerClick?: (marker: TimelineMarker) => void
+  onNavigatePrevious?: () => void
+  onNavigateNext?: () => void
+  disablePrevious?: boolean
+  disableNext?: boolean
 }
 
 const Track = ({
@@ -29,7 +40,7 @@ const Track = ({
   colorClass: string
   events: TimelineMarker[]
   emptyLabel: string
-  onMarkerClick?: (timestamp: number, marker?: TimelineMarker) => void
+  onMarkerClick?: (marker: TimelineMarker) => void
 }) => {
   return (
     <div className="space-y-1">
@@ -51,8 +62,8 @@ const Track = ({
                 }`}
                 title={event.label}
                 onClick={() => {
-                  if (event.timestamp != null && onMarkerClick) {
-                    onMarkerClick(event.timestamp, event)
+                  if (onMarkerClick) {
+                    onMarkerClick(event)
                   }
                 }}
               />
@@ -69,7 +80,18 @@ const Track = ({
 
 const clampPercent = (value: number) => Math.min(100, Math.max(0, value))
 
-const TimelineSection = memo(({ clicks, requests, timeRangeMs, playbackPercent, onMarkerClick }: TimelineProps) => {
+const TimelineSection = memo(
+  ({
+    clicks,
+    requests,
+    timeRangeMs,
+    playbackPercent,
+    onMarkerClick,
+    onNavigatePrevious,
+    onNavigateNext,
+    disablePrevious,
+    disableNext,
+  }: TimelineProps) => {
   const summary =
     timeRangeMs && timeRangeMs > 0
       ? `${(timeRangeMs / 1000).toFixed(2)}s window`
@@ -79,7 +101,31 @@ const TimelineSection = memo(({ clicks, requests, timeRangeMs, playbackPercent, 
     <section className="panel relative flex w-full flex-col gap-4 p-5">
       <div className="flex items-center justify-between text-sm text-gray-400">
         <span className="font-medium text-gray-200">Journey Timeline</span>
-        <span>{summary}</span>
+        <div className="flex items-center gap-3">
+          <span>{summary}</span>
+          <div className="flex overflow-hidden rounded-xl border border-borderMuted bg-panelMuted/70">
+            <button
+              type="button"
+              onClick={onNavigatePrevious}
+              disabled={disablePrevious}
+              className="flex h-8 w-9 items-center justify-center text-gray-200 transition hover:bg-panel disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="Previous event"
+              title="Previous event"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={onNavigateNext}
+              disabled={disableNext}
+              className="flex h-8 w-9 items-center justify-center text-gray-200 transition hover:bg-panel disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="Next event"
+              title="Next event"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        </div>
       </div>
       <div className="relative">
         {typeof playbackPercent === 'number' && (
@@ -107,7 +153,8 @@ const TimelineSection = memo(({ clicks, requests, timeRangeMs, playbackPercent, 
       </div>
     </section>
   )
-})
+  },
+)
 
 TimelineSection.displayName = 'TimelineSection'
 
