@@ -6,6 +6,8 @@ export type TimelineMarker = {
   label: string
   details: string
   timestamp: number | null
+  traceId?: string | number
+  color?: string
 }
 
 export interface TimelineProps {
@@ -13,7 +15,7 @@ export interface TimelineProps {
   requests: TimelineMarker[]
   timeRangeMs: number | null
   playbackPercent?: number | null
-  onMarkerClick?: (timestamp: number) => void
+  onMarkerClick?: (timestamp: number, marker?: TimelineMarker) => void
 }
 
 const Track = ({
@@ -27,7 +29,7 @@ const Track = ({
   colorClass: string
   events: TimelineMarker[]
   emptyLabel: string
-  onMarkerClick?: (timestamp: number) => void
+  onMarkerClick?: (timestamp: number, marker?: TimelineMarker) => void
 }) => {
   return (
     <div className="space-y-1">
@@ -50,7 +52,7 @@ const Track = ({
                 title={event.label}
                 onClick={() => {
                   if (event.timestamp != null && onMarkerClick) {
-                    onMarkerClick(event.timestamp)
+                    onMarkerClick(event.timestamp, event)
                   }
                 }}
               />

@@ -75,12 +75,15 @@ const computeTimeline = (
     const ts = typeof event.ts === 'number' ? event.ts : startTs
     const position = clampPercent(((ts - startTs) / range) * 100)
     const label = event.label ?? event.text ?? event.path ?? event.method ?? event.kind
+    const color = event.kind === 'click' ? '#f5d742' : '#4aa3ff'
     return {
       id: `${event.kind}-${event.id ?? index}`,
       position,
       label,
       details: buildDetails(event),
       timestamp: typeof event.ts === 'number' ? event.ts : null,
+      traceId: event.id,
+      color,
     }
   }
 
@@ -105,6 +108,8 @@ function App() {
   const [diagramError, setDiagramError] = useState<string | null>(null)
   const [videoProgressMs, setVideoProgressMs] = useState<number | null>(null)
   const [videoDurationMs, setVideoDurationMs] = useState<number | null>(null)
+  const [activeTraceId, setActiveTraceId] = useState<string | number | null>(null)
+  const [activeTraceColor, setActiveTraceColor] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
 
   const videoAnchorTs = traceFile?.videoStartedAt ?? null
@@ -210,7 +215,7 @@ function App() {
   }, [])
 
   const handleMarkerClick = useCallback(
-    (timestamp: number) => {
+    (timestamp: number, marker?: TimelineMarker) => {
       if (!videoRef.current || typeof videoAnchorTs !== 'number') {
         return
       }
@@ -218,6 +223,12 @@ function App() {
       if (videoTimeSeconds >= 0 && videoTimeSeconds <= (videoDurationMs ?? Infinity) / 1000) {
         videoRef.current.currentTime = videoTimeSeconds
       }
+      if (marker?.traceId != null) {
+        setActiveTraceId(marker.traceId)
+      } else {
+        setActiveTraceId(null)
+      }
+      setActiveTraceColor(marker?.color ?? null)
     },
     [videoAnchorTs, videoDurationMs],
   )
@@ -243,7 +254,13 @@ function App() {
             onTimeUpdate={handleTimeUpdate}
             onDuration={handleDuration}
           />
-          <DiagramPanel diagram={diagram} fileName={fileNames.diagram} errorMessage={diagramError} />
+          <DiagramPanel
+            diagram={diagram}
+            fileName={fileNames.diagram}
+            errorMessage={diagramError}
+            activeTraceId={activeTraceId}
+            activeTraceColor={activeTraceColor}
+          />
         </div>
         <TimelineSection
           clicks={timeline.clicks}

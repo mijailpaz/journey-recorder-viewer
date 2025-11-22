@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import {
   ArrowLeftRight,
@@ -25,6 +25,8 @@ type DiagramPanelProps = {
   diagram: string
   fileName?: string
   errorMessage?: string | null
+  activeTraceId?: string | number | null
+  activeTraceColor?: string | null
 }
 
 type CopyStatus = 'idle' | 'copied' | 'error'
@@ -59,7 +61,136 @@ const applySvgTransform = (svg: SVGSVGElement | null, transform: ViewTransform) 
   svg.style.transform = `translate(${transform.x}px, ${transform.y}px) scale(${transform.zoom})`
 }
 
-const DiagramPanel = ({ diagram, fileName, errorMessage }: DiagramPanelProps) => {
+const MESSAGE_LINE_PATTERN = /-->>|--\>|->>|->|--x|--o/
+
+const buildSequenceTraceMap = (diagram: string) => {
+  const map = new Map<number, string>()
+  if (!diagram.trim()) {
+    return map
+  }
+
+  const lines = diagram.split(/\r?\n/)
+  let pendingTrace: string | null = null
+  let sequence = 0
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim()
+    if (!line) {
+      continue
+    }
+    if (line.startsWith('%%')) {
+      const traceId = line.slice(2).trim()
+      pendingTrace = traceId || null
+      continue
+    }
+    if (!MESSAGE_LINE_PATTERN.test(line)) {
+      continue
+    }
+    sequence += 1
+    if (pendingTrace) {
+      map.set(sequence, pendingTrace)
+      pendingTrace = null
+    }
+  }
+
+  return map
+}
+
+const attachTraceMetadata = (svg: SVGSVGElement | null, sequenceTraceMap: Map<number, string>) => {
+  if (!svg) {
+    return
+  }
+
+  svg.querySelectorAll('[data-trace-id]').forEach((node) => {
+    node.removeAttribute('data-trace-id')
+    node.removeAttribute('data-trace-selected')
+    ;(node as SVGElement).style.removeProperty('--trace-highlight-color')
+  })
+
+  if (sequenceTraceMap.size === 0) {
+    return
+  }
+
+  const sequenceNodes = svg.querySelectorAll<SVGTextElement>('.sequenceNumber')
+  sequenceNodes.forEach((sequenceNode) => {
+    const sequenceValue = Number(sequenceNode.textContent?.trim())
+    const traceId = sequenceTraceMap.get(sequenceValue)
+    if (!traceId) {
+      return
+    }
+    const traceIdStr = String(traceId)
+    sequenceNode.setAttribute('data-trace-id', traceIdStr)
+
+    let sibling: Element | null = sequenceNode.previousElementSibling
+    let foundMessageText = false
+
+    while (sibling) {
+      const classList = sibling.getAttribute('class') ?? ''
+      const isMessageText = classList.includes('messageText')
+      const isLine =
+        classList.includes('messageLine0') ||
+        classList.includes('messageLine1') ||
+        sibling.getAttribute('marker-start')?.includes('sequencenumber')
+
+      if (isMessageText || isLine) {
+        sibling.setAttribute('data-trace-id', traceIdStr)
+        if (isMessageText) {
+          foundMessageText = true
+          break
+        }
+      } else if (foundMessageText) {
+        break
+      } else if (classList && !isLine) {
+        break
+      }
+
+      sibling = sibling.previousElementSibling
+    }
+  })
+}
+
+const highlightTraceSelection = (
+  svg: SVGSVGElement | null,
+  traceId?: string | number | null,
+  color?: string | null,
+) => {
+  if (!svg) {
+    return
+  }
+
+  svg.querySelectorAll('[data-trace-selected="true"]').forEach((node) => {
+    node.removeAttribute('data-trace-selected')
+    ;(node as SVGElement).style.removeProperty('--trace-highlight-color')
+  })
+
+  if (traceId == null) {
+    return
+  }
+
+  const traceIdStr = String(traceId)
+  const selector = `[data-trace-id="${escapeCssValue(traceIdStr)}"]`
+  svg.querySelectorAll(selector).forEach((node) => {
+    node.setAttribute('data-trace-selected', 'true')
+    if (color) {
+      ;(node as SVGElement).style.setProperty('--trace-highlight-color', color)
+    }
+  })
+}
+
+const escapeCssValue = (value: string) => {
+  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+    return CSS.escape(value)
+  }
+  return value.replace(/["\\]/g, '\\$&')
+}
+
+const DiagramPanel = ({
+  diagram,
+  fileName,
+  errorMessage,
+  activeTraceId,
+  activeTraceColor,
+}: DiagramPanelProps) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const [renderError, setRenderError] = useState<string | null>(null)
   const [transform, setTransform] = useState<ViewTransform>(() => createDefaultTransform())
@@ -67,6 +198,7 @@ const DiagramPanel = ({ diagram, fileName, errorMessage }: DiagramPanelProps) =>
   const [isFullscreenOpen, setIsFullscreenOpen] = useState(false)
   const [copyStatus, setCopyStatus] = useState<CopyStatus>('idle')
   const copyResetTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const sequenceTraceMap = useMemo(() => buildSequenceTraceMap(diagram), [diagram])
 
   useEffect(() => {
     setRenderError(errorMessage ?? null)
@@ -109,6 +241,7 @@ const DiagramPanel = ({ diagram, fileName, errorMessage }: DiagramPanelProps) =>
         if (isMounted && containerRef.current) {
           containerRef.current.innerHTML = svg
           const svgElement = containerRef.current.querySelector('svg')
+          attachTraceMetadata(svgElement, sequenceTraceMap)
           applySvgTransform(svgElement, transformRef.current)
           setRenderError(null)
         }
@@ -127,7 +260,16 @@ const DiagramPanel = ({ diagram, fileName, errorMessage }: DiagramPanelProps) =>
     return () => {
       isMounted = false
     }
-  }, [diagram])
+  }, [diagram, sequenceTraceMap])
+
+  useEffect(() => {
+    const svg = containerRef.current?.querySelector('svg')
+    if (!svg) {
+      return
+    }
+    attachTraceMetadata(svg, sequenceTraceMap)
+    highlightTraceSelection(svg, activeTraceId, activeTraceColor)
+  }, [sequenceTraceMap, activeTraceId, activeTraceColor])
 
   const handlePan = (xDelta: number, yDelta: number) => {
     setTransform((prev) => ({ ...prev, x: prev.x + xDelta, y: prev.y + yDelta }))
@@ -227,7 +369,12 @@ const DiagramPanel = ({ diagram, fileName, errorMessage }: DiagramPanelProps) =>
       </div>
       </section>
       {isFullscreenOpen && (
-        <FullscreenDiagramDialog diagram={diagram} onClose={() => setIsFullscreenOpen(false)} />
+        <FullscreenDiagramDialog
+          diagram={diagram}
+          onClose={() => setIsFullscreenOpen(false)}
+          activeTraceId={activeTraceId}
+          activeTraceColor={activeTraceColor}
+        />
       )}
     </>
   )
@@ -356,13 +503,21 @@ const ActionButton = ({ label, onClick, children }: ActionButtonProps) => (
 type FullscreenDiagramDialogProps = {
   diagram: string
   onClose: () => void
+  activeTraceId?: string | number | null
+  activeTraceColor?: string | null
 }
 
-const FullscreenDiagramDialog = ({ diagram, onClose }: FullscreenDiagramDialogProps) => {
+const FullscreenDiagramDialog = ({
+  diagram,
+  onClose,
+  activeTraceId,
+  activeTraceColor,
+}: FullscreenDiagramDialogProps) => {
   const canvasRef = useRef<HTMLDivElement>(null)
   const [dialogError, setDialogError] = useState<string | null>(null)
   const [transform, setTransform] = useState<ViewTransform>(() => createDefaultTransform())
   const transformRef = useRef<ViewTransform>(createDefaultTransform())
+  const sequenceTraceMap = useMemo(() => buildSequenceTraceMap(diagram), [diagram])
   const hasDiagram = diagram.trim().length > 0
 
   useEffect(() => {
@@ -410,7 +565,9 @@ const FullscreenDiagramDialog = ({ diagram, onClose }: FullscreenDiagramDialogPr
         if (isMounted && canvasRef.current) {
           canvasRef.current.innerHTML = svg
           const svgElement = canvasRef.current.querySelector('svg')
+          attachTraceMetadata(svgElement, sequenceTraceMap)
           applySvgTransform(svgElement, transformRef.current)
+          highlightTraceSelection(svgElement, activeTraceId, activeTraceColor)
           setDialogError(null)
         }
       } catch (error) {
@@ -427,7 +584,16 @@ const FullscreenDiagramDialog = ({ diagram, onClose }: FullscreenDiagramDialogPr
     return () => {
       isMounted = false
     }
-  }, [diagram])
+  }, [diagram, hasDiagram, sequenceTraceMap])
+
+  useEffect(() => {
+    const svg = canvasRef.current?.querySelector('svg')
+    if (!svg) {
+      return
+    }
+    attachTraceMetadata(svg, sequenceTraceMap)
+    highlightTraceSelection(svg, activeTraceId, activeTraceColor)
+  }, [sequenceTraceMap, activeTraceId, activeTraceColor])
 
   if (typeof document === 'undefined') {
     return null

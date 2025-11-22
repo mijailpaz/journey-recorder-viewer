@@ -32,4 +32,14 @@
   .panel {
     @apply rounded-xl border border-borderMuted bg-panel shadow-panel;
   }
+
+  .mermaid [data-trace-selected='true'].messageLine0,
+  .mermaid [data-trace-selected='true'].messageLine1 {
+    stroke: var(--trace-highlight-color, #f5d742) !important;
+    stroke-width: 2px !important;
+  }
+
+  .mermaid [data-trace-selected='true'].messageText {
+    fill: var(--trace-highlight-color, #f5d742) !important;
+  }
 }
