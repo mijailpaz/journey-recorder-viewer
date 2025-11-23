@@ -6,7 +6,7 @@ import FooterBar from './components/FooterBar'
 import HeaderBar from './components/HeaderBar'
 import TimelineSection, { type TimelineMarker } from './components/Timeline'
 import VideoPanel from './components/VideoPanel'
-import type { TraceEvent, TraceFile } from './types/trace'
+import type { TraceCapturedBody, TraceEvent, TraceFile, TraceNetworkTimings } from './types/trace'
 
 type LoadedVideo = {
   url: string
@@ -351,9 +351,7 @@ function App() {
 
   const disablePrevious = combinedMarkers.length === 0 || activeMarkerIndex <= 0
   const disableNext =
-    combinedMarkers.length === 0 ||
-    activeMarkerIndex === -1 ||
-    activeMarkerIndex === combinedMarkers.length - 1
+    combinedMarkers.length === 0 || activeMarkerIndex === combinedMarkers.length - 1
 
   const allFilesLoaded = Boolean(video && traceFile && diagram.trim())
 
@@ -368,6 +366,15 @@ function App() {
       autoCollapsedRef.current = true
     }
   }, [allFilesLoaded])
+
+  useEffect(() => {
+    if (allFilesLoaded && combinedMarkers.length > 0 && activeMarkerIndex === -1) {
+      const firstMarker = combinedMarkers[0]
+      if (firstMarker) {
+        handleMarkerSelect(firstMarker)
+      }
+    }
+  }, [allFilesLoaded, combinedMarkers, activeMarkerIndex, handleMarkerSelect])
 
   return (
     <div className="flex min-h-screen flex-col bg-canvas">
@@ -551,8 +558,15 @@ const JourneyItemDetails = ({ marker }: { marker: TimelineMarker | null }) => {
         {event?.method && event.kind === 'request' && (
           <DetailChip>Method: {event.method}</DetailChip>
         )}
+        {event?.type && event.kind === 'request' && <DetailChip>Type: {event.type}</DetailChip>}
+        {(event?.protocol || event?.nextHopProtocol) && event.kind === 'request' && (
+          <DetailChip>{`Protocol: ${event.nextHopProtocol ?? event.protocol}`}</DetailChip>
+        )}
+        {typeof event?.duration === 'number' && event.kind === 'request' && (
+          <DetailChip>{`Duration: ${formatMs(event.duration)}`}</DetailChip>
+        )}
         {typeof event?.status === 'number' && event.kind === 'request' && (
-          <DetailChip className="bg-emerald-500/10 text-emerald-200">{`Status: ${event.status}`}</DetailChip>
+          <DetailChip className={getStatusChipClass(event.status)}>{`Status: ${event.status}`}</DetailChip>
         )}
         <button
           type="button"
@@ -592,7 +606,7 @@ const ClickDetails = ({
   related: TraceEvent[]
 }) => {
   return (
-    <div className="grid gap-4 md:grid-cols-2">
+    <div className="grid min-w-0 gap-4 md:grid-cols-2">
       <DetailCard title="Interaction">
         <DetailList
           entries={[
@@ -615,7 +629,7 @@ const ClickDetails = ({
             </DetailChip>
             <ol className="list-inside list-decimal space-y-1">
               {related.map((req) => (
-                <li key={`related-${req.id ?? req.ts}`}>
+                <li key={`related-${req.id ?? req.ts}`} className="break-words">
                   <span className="font-medium text-gray-100">{req.method ?? 'GET'}</span>{' '}
                   <span className="text-gray-400">{req.path ?? req.url}</span>
                   {typeof req.status === 'number' && (
@@ -638,60 +652,134 @@ const RequestDetails = ({
   event: TraceEvent
   triggeredBy?: TraceEvent | null
 }) => {
+  const requestUrlEntries: Array<[string, ReactNode]> = [
+    ['URL', event.url ?? '—'],
+    ['Host', event.host ?? '—'],
+    ['Path', event.path ?? '—'],
+    ['Query', event.qs ?? '—'],
+    ['Target URL', event.targetUrl ?? '—'],
+    ['Target host', event.targetHost ?? '—'],
+    ['Target path', event.targetPath ?? '—'],
+    ['Content type', event.contentType ?? '—'],
+    ['Initiator', event.initiator ?? event.targetUrl ?? '—'],
+    ['Frame ID', event.frameId ?? '—'],
+    ['Tab ID', event.tabId ?? '—'],
+    ['Request ID', event.requestId ?? event.id ?? '—'],
+  ]
+
+  const statusEntries: Array<[string, ReactNode]> = [
+    ['Method', event.method ?? '—'],
+    [
+      'Triggered by',
+      triggeredBy
+        ? `${triggeredBy.kind} #${triggeredBy.id ?? ''} (${triggeredBy.label ?? triggeredBy.text ?? ''})`
+        : 'Unknown',
+    ],
+    ['Timestamp', formatTimestamp(event.ts)],
+    ['Protocol', event.protocol ?? event.nextHopProtocol ?? '—'],
+    ['Type', event.type ?? 'request'],
+  ]
+
+  const performanceEntries: Array<[string, ReactNode]> = [
+    ['Start time', formatMs(event.startTime)],
+    ['Duration', formatMs(event.duration)],
+    ['Response start', formatMs(event.responseStart)],
+    ['Response end', formatMs(event.responseEnd)],
+    ['Transfer size', formatBytes(event.transferSize)],
+    ['Body (encoded)', formatBytes(event.encodedBodySize)],
+    ['Body (decoded)', formatBytes(event.decodedBodySize)],
+    ['Network type', event.type ?? '—'],
+    ['Next hop', event.nextHopProtocol ?? '—'],
+  ]
+
+  const showPerformanceCard = performanceEntries.some(([, value]) => value !== '—')
+  const timingEntries = buildTimingEntries(event.timings)
+  const showTimings = timingEntries.length > 0
+  const curlCommand = generateCurlCommand(event)
+
   return (
-    <div className="grid gap-4 md:grid-cols-2">
+    <div className="grid min-w-0 gap-4 md:grid-cols-2">
       <DetailCard title="Request URL">
-        <DetailList
-          entries={[
-            ['URL', event.url ?? '—'],
-            ['Host', event.host ?? '—'],
-            ['Path', event.path ?? '—'],
-            ['Query', event.qs ?? '—'],
-          ]}
-        />
+        <DetailList entries={requestUrlEntries} />
       </DetailCard>
       <DetailCard title="Status">
         <div className="space-y-2 text-sm text-gray-300">
-          <DetailChip className="bg-emerald-500/10 text-emerald-300">
+          <DetailChip className={getStatusChipClass(event.status)}>
             {event.status ?? '—'} {event.statusText ? `· ${event.statusText}` : ''}
           </DetailChip>
-          <DetailList
-            entries={[
-              ['Method', event.method ?? '—'],
-              ['Type', event.kind ?? 'request'],
-              [
-                'Triggered by',
-                triggeredBy
-                  ? `${triggeredBy.kind} #${triggeredBy.id ?? ''} (${triggeredBy.label ?? triggeredBy.text ?? ''})`
-                  : 'Unknown',
-              ],
-              ['Timestamp', formatTimestamp(event.ts)],
-              ['ID', event.id != null ? String(event.id) : '—'],
-            ]}
-          />
+          <DetailList entries={statusEntries} />
         </div>
       </DetailCard>
+      {showPerformanceCard && (
+        <DetailCard title="Performance">
+          <DetailList entries={performanceEntries} />
+        </DetailCard>
+      )}
+      {showTimings && (
+        <DetailCard title="Network Timings">
+          <DetailList entries={timingEntries} />
+        </DetailCard>
+      )}
+      {curlCommand && (
+        <DetailCard title="cURL Command" className="md:col-span-2">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-gray-400">Copy this command to replay the request</p>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(curlCommand)
+                }}
+                className="text-xs text-blue-400 transition hover:text-blue-300 hover:underline"
+              >
+                Copy
+              </button>
+            </div>
+            <textarea
+              readOnly
+              value={curlCommand}
+              className="w-full resize-none rounded-lg border border-borderMuted bg-black/30 p-3 font-mono text-xs leading-relaxed text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+              rows={Math.min(Math.max(curlCommand.split('\n').length, 3), 15)}
+              onClick={(e) => {
+                e.currentTarget.select()
+              }}
+            />
+          </div>
+        </DetailCard>
+      )}
+      <BodyCard title="Request Body" body={event.requestBody} />
+      <BodyCard title="Response Body" body={event.responseBody} />
     </div>
   )
 }
 
-const DetailCard = ({ title, children }: { title: string; children: ReactNode }) => (
-  <div className="rounded-2xl border border-borderMuted bg-panel px-4 py-3">
+const DetailCard = ({
+  title,
+  children,
+  className = '',
+}: {
+  title: string
+  children: ReactNode
+  className?: string
+}) => (
+  <div
+    className={`min-w-0 overflow-hidden rounded-2xl border border-borderMuted bg-panel px-4 py-3 ${className}`}
+  >
     <p className="mb-2 text-xs uppercase tracking-[0.3em] text-gray-500">{title}</p>
-    {children}
+    <div className="min-w-0">{children}</div>
   </div>
 )
 
 const DetailList = ({
   entries,
 }: {
-  entries: Array<[string, React.ReactNode]>
+  entries: Array<[string, ReactNode]>
 }) => (
   <dl className="space-y-1 text-sm text-gray-300">
     {entries.map(([label, value]) => (
       <div key={label} className="flex items-start justify-between gap-4">
-        <dt className="text-gray-500">{label}</dt>
-        <dd className="text-right text-gray-100">{value ?? '—'}</dd>
+        <dt className="flex-shrink-0 text-gray-500">{label}</dt>
+        <dd className="min-w-0 break-words text-right text-gray-100">{value ?? '—'}</dd>
       </div>
     ))}
   </dl>
@@ -702,7 +790,7 @@ const DetailChip = ({
   color,
   className = '',
 }: {
-  children: React.ReactNode
+  children: ReactNode
   color?: string
   className?: string
 }) => (
@@ -714,5 +802,225 @@ const DetailChip = ({
   </span>
 )
 
+const formatMs = (value?: number | null) => {
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    return '—'
+  }
+  return `${value.toFixed(2)} ms`
+}
+
+const formatBytes = (value?: number | null) => {
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    return '—'
+  }
+  if (value >= 1024 * 1024) {
+    return `${(value / (1024 * 1024)).toFixed(2)} MB`
+  }
+  if (value >= 1024) {
+    return `${(value / 1024).toFixed(2)} KB`
+  }
+  return `${value.toLocaleString()} bytes`
+}
+
+const getStatusChipClass = (status?: number | null) => {
+  if (typeof status !== 'number') {
+    return ''
+  }
+  if (status >= 200 && status < 300) {
+    return 'bg-emerald-500/10 text-emerald-200'
+  }
+  if (status >= 400) {
+    return 'bg-rose-500/10 text-rose-200'
+  }
+  return 'bg-amber-500/10 text-amber-200'
+}
+
+const TIMING_ORDER: Array<keyof TraceNetworkTimings> = [
+  'blocked',
+  'dns',
+  'connect',
+  'ssl',
+  'send',
+  'wait',
+  'receive',
+  '_blocked_queueing',
+  '_workerStart',
+  '_workerReady',
+  '_workerFetchStart',
+  '_workerRespondWithSettled',
+]
+
+const TIMING_LABELS: Record<keyof TraceNetworkTimings, string> = {
+  blocked: 'Blocked',
+  dns: 'DNS',
+  connect: 'Connect',
+  ssl: 'SSL',
+  send: 'Send',
+  wait: 'Wait / TTFB',
+  receive: 'Receive',
+  _blocked_queueing: 'Queueing',
+  _workerStart: 'Worker start',
+  _workerReady: 'Worker ready',
+  _workerFetchStart: 'Worker fetch',
+  _workerRespondWithSettled: 'Worker respond',
+}
+
+const buildTimingEntries = (timings?: TraceNetworkTimings): Array<[string, ReactNode]> => {
+  if (!timings) {
+    return []
+  }
+  return TIMING_ORDER.reduce<Array<[string, ReactNode]>>((entries, key) => {
+    const value = timings[key]
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      entries.push([TIMING_LABELS[key] ?? key, formatMs(value)])
+    }
+    return entries
+  }, [])
+}
+
+const generateCurlCommand = (event: TraceEvent): string | null => {
+  if (!event.url || !event.method) {
+    return null
+  }
+
+  const parts: string[] = []
+
+  // Start with curl command
+  parts.push('curl')
+
+  // Add verbose flag for better debugging
+  parts.push('-v')
+
+  // Add method
+  const method = event.method.toUpperCase()
+  if (method !== 'GET') {
+    parts.push(`-X ${method}`)
+  }
+
+  // Build full URL with query string
+  let fullUrl = event.url
+  if (event.qs && event.qs !== 'null') {
+    // Remove leading ? if present
+    const qs = event.qs.startsWith('?') ? event.qs.slice(1) : event.qs
+    fullUrl = fullUrl.includes('?') ? `${fullUrl}&${qs}` : `${fullUrl}?${qs}`
+  }
+
+  // Add URL (properly escaped)
+  parts.push(`'${fullUrl.replace(/'/g, "'\\''")}'`)
+
+  // Add headers
+  const headers: string[] = []
+
+  // Content-Type header
+  if (event.requestBody) {
+    const mimeType = event.requestBody.mimeType || event.contentType || 'application/json'
+    headers.push(`'Content-Type: ${mimeType}'`)
+  } else if (event.contentType) {
+    headers.push(`'Content-Type: ${event.contentType}'`)
+  }
+
+  // Add Accept header for JSON responses
+  if (event.contentType?.includes('json') || event.responseBody?.mimeType?.includes('json')) {
+    headers.push("'Accept: application/json'")
+  }
+
+  // Add User-Agent (common browser user agent)
+  headers.push(
+    "'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'",
+  )
+
+  // Add all headers
+  if (headers.length > 0) {
+    headers.forEach((header) => {
+      parts.push(`-H ${header}`)
+    })
+  }
+
+  // Add request body if present
+  if (event.requestBody) {
+    const bodyContent = decodeBodyContent(event.requestBody)
+    if (bodyContent) {
+      // Try to format JSON if it's JSON
+      let formattedBody = bodyContent.trim()
+      if (formattedBody.startsWith('{') || formattedBody.startsWith('[')) {
+        try {
+          const parsed = JSON.parse(formattedBody)
+          formattedBody = JSON.stringify(parsed)
+        } catch {
+          // If parsing fails, use original
+        }
+      }
+      // Escape single quotes and wrap in single quotes
+      const escapedBody = formattedBody.replace(/'/g, "'\\''")
+      parts.push(`-d '${escapedBody}'`)
+    }
+  }
+
+  return parts.join(' \\\n  ')
+}
+
+const decodeBodyContent = (body?: TraceCapturedBody | null): string | null => {
+  if (!body) {
+    return null
+  }
+  const raw = body.text ?? body.content
+  if (raw == null || typeof raw !== 'string') {
+    return null
+  }
+  if (body.encoding?.toLowerCase() === 'base64') {
+    try {
+      if (typeof atob === 'function') {
+        return atob(raw)
+      }
+    } catch {
+      return raw
+    }
+  }
+  return raw
+}
+
+const formatBodyPreview = (raw: string) => {
+  const trimmed = raw.trim()
+  if (!trimmed) {
+    return 'Body captured but empty.'
+  }
+  const firstChar = trimmed[0]
+  if (firstChar === '{' || firstChar === '[') {
+    try {
+      const parsed = JSON.parse(trimmed)
+      return JSON.stringify(parsed, null, 2)
+    } catch {
+      // ignore malformed JSON, show raw payload instead
+    }
+  }
+  return raw
+}
+
+const BodyCard = ({ title, body }: { title: string; body?: TraceCapturedBody | null }) => {
+  const decoded = decodeBodyContent(body)
+  if (decoded == null) {
+    return null
+  }
+  const formatted = formatBodyPreview(decoded)
+  const metaEntries: Array<[string, ReactNode]> = []
+  if (body?.mimeType) {
+    metaEntries.push(['MIME Type', body.mimeType])
+  }
+  if (body?.encoding) {
+    metaEntries.push(['Encoding', body.encoding])
+  }
+  metaEntries.push(['Length', `${decoded.length.toLocaleString()} chars`])
+
+  return (
+    <DetailCard title={title} className="md:col-span-2">
+      <div className="space-y-3 text-sm text-gray-300">
+        <DetailList entries={metaEntries} />
+        <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-2xl bg-black/30 p-3 font-mono text-xs leading-relaxed text-gray-100">
+          {formatted}
+        </pre>
+      </div>
+    </DetailCard>
+  )
+}
 
 export default App
