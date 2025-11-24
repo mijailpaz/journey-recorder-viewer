@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { ArrowRight, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Pin, PinOff } from 'lucide-react'
 import DiagramPanel from './components/DiagramPanel'
 import FileInputs from './components/FileInputs'
@@ -189,6 +190,7 @@ function App() {
   const [activeMarker, setActiveMarker] = useState<TimelineMarker | null>(null)
   const [fileInputsCollapsed, setFileInputsCollapsed] = useState(false)
   const [isTimelinePinned, setIsTimelinePinned] = useState(false)
+  const [isCurrentJourneyItemPinned, setIsCurrentJourneyItemPinned] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const autoCollapsedRef = useRef(false)
 
@@ -379,7 +381,33 @@ function App() {
 
   return (
     <div className="flex min-h-screen flex-col bg-canvas">
-      <HeaderBar>
+      {!isCurrentJourneyItemPinned && (
+        <HeaderBar>
+          <FileInputsSection
+            collapsed={fileInputsCollapsed}
+            canToggle={allFilesLoaded}
+            onToggle={() => setFileInputsCollapsed((prev) => !prev)}
+            marker={activeMarker}
+            status={status}
+            disablePrevious={disablePrevious}
+            disableNext={disableNext}
+            onNavigatePrevious={() => handleNavigate('prev')}
+            onNavigateNext={() => handleNavigate('next')}
+            isPinned={isCurrentJourneyItemPinned}
+            onTogglePin={() => setIsCurrentJourneyItemPinned(!isCurrentJourneyItemPinned)}
+          >
+            <FileInputs
+              onVideoSelect={handleVideoSelect}
+              onTraceSelect={handleTraceSelect}
+              onDiagramSelect={handleDiagramSelect}
+              loadedNames={fileNames}
+              errorMessage={fileError}
+            />
+          </FileInputsSection>
+        </HeaderBar>
+      )}
+
+      {isCurrentJourneyItemPinned && (
         <FileInputsSection
           collapsed={fileInputsCollapsed}
           canToggle={allFilesLoaded}
@@ -390,8 +418,8 @@ function App() {
           disableNext={disableNext}
           onNavigatePrevious={() => handleNavigate('prev')}
           onNavigateNext={() => handleNavigate('next')}
-          isTimelinePinned={isTimelinePinned}
-          onToggleTimelinePin={() => setIsTimelinePinned(!isTimelinePinned)}
+          isPinned={isCurrentJourneyItemPinned}
+          onTogglePin={() => setIsCurrentJourneyItemPinned(!isCurrentJourneyItemPinned)}
         >
           <FileInputs
             onVideoSelect={handleVideoSelect}
@@ -401,9 +429,9 @@ function App() {
             errorMessage={fileError}
           />
         </FileInputsSection>
-      </HeaderBar>
+      )}
 
-      <main className={`flex flex-1 flex-col gap-5 overflow-hidden px-6 py-6 ${isTimelinePinned ? 'pb-[60px]' : ''}`}>
+      <main className={`flex flex-1 flex-col gap-5 overflow-hidden px-6 py-6 ${isTimelinePinned ? 'pb-[60px]' : ''} ${isCurrentJourneyItemPinned ? 'pt-[120px]' : ''}`}>
         <div className="grid flex-1 grid-cols-1 gap-5 lg:grid-cols-2">
           <VideoPanel
             ref={videoRef}
@@ -469,8 +497,8 @@ type FileInputsSectionProps = {
   disableNext: boolean
   onNavigatePrevious: () => void
   onNavigateNext: () => void
-  isTimelinePinned: boolean
-  onToggleTimelinePin: () => void
+  isPinned: boolean
+  onTogglePin: () => void
 }
 
 const FileInputsSection = ({
@@ -483,12 +511,12 @@ const FileInputsSection = ({
   disableNext,
   onNavigatePrevious,
   onNavigateNext,
-  isTimelinePinned,
-  onToggleTimelinePin,
+  isPinned,
+  onTogglePin,
   children,
 }: FileInputsSectionProps) => {
-  return (
-    <div className="rounded-2xl border border-borderMuted bg-panelMuted/60 px-4 py-4">
+  const content = (
+    <div className={`rounded-2xl border border-borderMuted bg-panelMuted/60 px-4 py-4 ${isPinned ? 'fixed top-0 left-0 right-0 z-[9998] w-screen border-b shadow-2xl' : ''}`}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-col gap-1">
           <div className="flex items-center justify-between gap-3">
@@ -510,12 +538,12 @@ const FileInputsSection = ({
             <>
               <button
                 type="button"
-                onClick={onToggleTimelinePin}
+                onClick={onTogglePin}
                 className="flex h-8 w-8 items-center justify-center rounded-lg border border-borderMuted bg-panelMuted text-gray-200 transition hover:bg-panel hover:text-white"
-                aria-label={isTimelinePinned ? 'Unpin timeline' : 'Pin timeline to bottom'}
-                title={isTimelinePinned ? 'Unpin timeline' : 'Pin timeline to bottom'}
+                aria-label={isPinned ? 'Unpin Current Journey Item' : 'Pin Current Journey Item to top'}
+                title={isPinned ? 'Unpin Current Journey Item' : 'Pin Current Journey Item to top'}
               >
-                {isTimelinePinned ? <PinOff size={16} /> : <Pin size={16} />}
+                {isPinned ? <PinOff size={16} /> : <Pin size={16} />}
               </button>
               <div className="flex overflow-hidden rounded-xl border border-borderMuted bg-panelMuted/70">
                 <button
@@ -557,6 +585,12 @@ const FileInputsSection = ({
       <div className="mt-4">{collapsed ? <JourneyItemDetails marker={marker} /> : children}</div>
     </div>
   )
+
+  if (isPinned && typeof document !== 'undefined') {
+    return createPortal(content, document.body)
+  }
+
+  return content
 }
 
 const JourneyItemDetails = ({ marker }: { marker: TimelineMarker | null }) => {
