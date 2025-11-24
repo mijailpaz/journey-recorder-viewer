@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import { createPortal } from 'react-dom'
 import {
   ArrowRight,
@@ -254,13 +262,14 @@ function App() {
   const [activeTraceColor, setActiveTraceColor] = useState<string | null>(null)
   const [activeMarkerId, setActiveMarkerId] = useState<string | null>(null)
   const [activeMarker, setActiveMarker] = useState<TimelineMarker | null>(null)
-  const [fileInputsCollapsed, setFileInputsCollapsed] = useState(false)
   const [isTimelinePinned, setIsTimelinePinned] = useState(false)
   const [isCurrentJourneyItemPinned, setIsCurrentJourneyItemPinned] = useState(false)
   const [eventOverrides, setEventOverrides] = useState<EventOverrideMap>({})
   const [filterSettings, setFilterSettings] = useState<TraceFilterSettings>(createDefaultFilterSettings())
+  const [pinnedCurrentItemHeight, setPinnedCurrentItemHeight] = useState(0)
+  const [showLoadSessionPanel, setShowLoadSessionPanel] = useState(true)
   const videoRef = useRef<HTMLVideoElement>(null)
-  const autoCollapsedRef = useRef(false)
+  const autoHideLoadPanelRef = useRef(false)
 
   const manualEvents = useMemo(
     () => applyEventOverridesToEvents(loadedTraceFile?.events ?? [], eventOverrides),
@@ -662,13 +671,13 @@ function App() {
 
   useEffect(() => {
     if (!allFilesLoaded) {
-      setFileInputsCollapsed(false)
-      autoCollapsedRef.current = false
+      setShowLoadSessionPanel(true)
+      autoHideLoadPanelRef.current = false
       return
     }
-    if (!autoCollapsedRef.current) {
-      setFileInputsCollapsed(true)
-      autoCollapsedRef.current = true
+    if (!autoHideLoadPanelRef.current) {
+      setShowLoadSessionPanel(false)
+      autoHideLoadPanelRef.current = true
     }
   }, [allFilesLoaded])
 
@@ -725,6 +734,16 @@ function App() {
     </div>
   )
 
+  const timelineHeightWhenPinned = 60 // Approximate height of pinned timeline
+  const pinnedPanelBottom = isTimelinePinned ? timelineHeightWhenPinned + 16 : 16
+  const pinnedPanelHeight = pinnedCurrentItemHeight || 180
+  const mainStyle =
+    isCurrentJourneyItemPinned
+      ? { paddingBottom: `${24 + pinnedPanelHeight + (isTimelinePinned ? timelineHeightWhenPinned : 0)}px` }
+      : isTimelinePinned
+        ? { paddingBottom: `${timelineHeightWhenPinned}px` }
+        : undefined
+
   const downloadTooltipContent = useMemo(() => {
     if (!hasTraceModifications) {
       return null
@@ -766,61 +785,73 @@ function App() {
     </div>
   ) : null
 
+  const loadPanelToggleLabel = showLoadSessionPanel ? 'Hide Load Session Files' : 'Show Load Session Files'
+  const loadPanelToggleButton = allFilesLoaded ? (
+    <button
+      type="button"
+      onClick={() => setShowLoadSessionPanel((prev) => !prev)}
+      className={`flex h-9 w-9 items-center justify-center rounded-full border border-borderMuted transition ${
+        showLoadSessionPanel ? 'bg-panel text-white' : 'text-gray-200 hover:bg-panel hover:text-white'
+      }`}
+      aria-label={loadPanelToggleLabel}
+      title={loadPanelToggleLabel}
+      aria-pressed={showLoadSessionPanel}
+    >
+      <Settings size={16} />
+    </button>
+  ) : null
+
+  const loadSessionSection = (
+    <FileInputsSection
+      collapsed={false}
+      marker={activeMarker}
+      status={status}
+      disablePrevious={disablePrevious}
+      disableNext={disableNext}
+      onNavigatePrevious={() => handleNavigate('prev')}
+      onNavigateNext={() => handleNavigate('next')}
+      isPinned={false}
+      onTogglePin={() => setIsCurrentJourneyItemPinned((prev) => !prev)}
+    >
+      {fileInputsContent}
+    </FileInputsSection>
+  )
+
+  const shouldShowLoadSessionSection = !allFilesLoaded || showLoadSessionPanel
+
+  const currentJourneySection = (
+    <FileInputsSection
+      collapsed
+      marker={activeMarker}
+      status={status}
+      disablePrevious={disablePrevious}
+      disableNext={disableNext}
+      onNavigatePrevious={() => handleNavigate('prev')}
+      onNavigateNext={() => handleNavigate('next')}
+      isPinned={isCurrentJourneyItemPinned}
+      onTogglePin={() => setIsCurrentJourneyItemPinned((prev) => !prev)}
+      eventEditor={{
+        getOverrideForEvent,
+        updateLabel: updateEventLabel,
+        toggleRemoval: toggleEventRemoval,
+        reset: resetEventChanges,
+        getOriginalEvent: getOriginalEventFor,
+      }}
+      pinnedOffset={pinnedPanelBottom}
+      onPinnedHeightChange={setPinnedCurrentItemHeight}
+    />
+  )
+
   return (
     <div className="flex min-h-screen flex-col bg-canvas">
-      {!isCurrentJourneyItemPinned && (
-        <HeaderBar actions={headerActions}>
-          <FileInputsSection
-            collapsed={fileInputsCollapsed}
-            canToggle={allFilesLoaded}
-            onToggle={() => setFileInputsCollapsed((prev) => !prev)}
-            marker={activeMarker}
-            status={status}
-            disablePrevious={disablePrevious}
-            disableNext={disableNext}
-            onNavigatePrevious={() => handleNavigate('prev')}
-            onNavigateNext={() => handleNavigate('next')}
-            isPinned={isCurrentJourneyItemPinned}
-            onTogglePin={() => setIsCurrentJourneyItemPinned(!isCurrentJourneyItemPinned)}
-            eventEditor={{
-              getOverrideForEvent,
-              updateLabel: updateEventLabel,
-              toggleRemoval: toggleEventRemoval,
-              reset: resetEventChanges,
-              getOriginalEvent: getOriginalEventFor,
-            }}
-          >
-            {fileInputsContent}
-          </FileInputsSection>
-        </HeaderBar>
-      )}
+      <HeaderBar actions={headerActions} modeActions={loadPanelToggleButton} />
 
-      {isCurrentJourneyItemPinned && (
-        <FileInputsSection
-          collapsed={fileInputsCollapsed}
-          canToggle={allFilesLoaded}
-          onToggle={() => setFileInputsCollapsed((prev) => !prev)}
-          marker={activeMarker}
-          status={status}
-          disablePrevious={disablePrevious}
-          disableNext={disableNext}
-          onNavigatePrevious={() => handleNavigate('prev')}
-          onNavigateNext={() => handleNavigate('next')}
-          isPinned={isCurrentJourneyItemPinned}
-          onTogglePin={() => setIsCurrentJourneyItemPinned(!isCurrentJourneyItemPinned)}
-          eventEditor={{
-            getOverrideForEvent,
-            updateLabel: updateEventLabel,
-            toggleRemoval: toggleEventRemoval,
-            reset: resetEventChanges,
-            getOriginalEvent: getOriginalEventFor,
-          }}
-        >
-          {fileInputsContent}
-        </FileInputsSection>
-      )}
+      <main
+        className={`flex flex-1 flex-col gap-5 overflow-hidden px-6 py-6`}
+        style={mainStyle}
+      >
+        {shouldShowLoadSessionSection && loadSessionSection}
 
-      <main className={`flex flex-1 flex-col gap-5 overflow-hidden px-6 py-6 ${isTimelinePinned ? 'pb-[60px]' : ''} ${isCurrentJourneyItemPinned ? 'pt-[120px]' : ''}`}>
         <div className="grid flex-1 grid-cols-1 gap-5 lg:grid-cols-2">
           <VideoPanel
             ref={videoRef}
@@ -837,6 +868,9 @@ function App() {
             activeTraceColor={activeTraceColor}
           />
         </div>
+
+        {currentJourneySection}
+
         {!isTimelinePinned && (
           <TimelineSection
             clicks={timeline.clicks}
@@ -877,11 +911,11 @@ function App() {
 
 type FileInputsSectionProps = {
   collapsed: boolean
-  canToggle: boolean
-  onToggle: () => void
+  canToggle?: boolean
+  onToggle?: () => void
   marker: TimelineMarker | null
   status: string
-  children: ReactNode
+  children?: ReactNode
   disablePrevious: boolean
   disableNext: boolean
   onNavigatePrevious: () => void
@@ -889,6 +923,8 @@ type FileInputsSectionProps = {
   isPinned: boolean
   onTogglePin: () => void
   eventEditor?: JourneyEventEditorProps
+  pinnedOffset?: number
+  onPinnedHeightChange?: (height: number) => void
 }
 
 type JourneyEventEditorProps = {
@@ -901,7 +937,7 @@ type JourneyEventEditorProps = {
 
 const FileInputsSection = ({
   collapsed,
-  canToggle,
+  canToggle = false,
   onToggle,
   marker,
   status,
@@ -913,12 +949,50 @@ const FileInputsSection = ({
   onTogglePin,
   eventEditor,
   children,
+  pinnedOffset = 0,
+  onPinnedHeightChange,
 }: FileInputsSectionProps) => {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [measuredHeight, setMeasuredHeight] = useState(0)
+  const panelRef = useRef<HTMLDivElement | null>(null)
   const event = marker?.event
   const editorOverride = eventEditor && event ? eventEditor.getOverrideForEvent(event) : undefined
   const originalEvent = eventEditor && event ? eventEditor.getOriginalEvent(event) : null
   const isRemoved = editorOverride?.removed ?? false
+
+  useLayoutEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    const node = panelRef.current
+    if (!node) {
+      return
+    }
+    const updateHeight = () => {
+      const height = node.getBoundingClientRect().height
+      setMeasuredHeight(height)
+      if (onPinnedHeightChange) {
+        onPinnedHeightChange(height)
+      }
+    }
+    updateHeight()
+    let observer: ResizeObserver | null = null
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(() => {
+        updateHeight()
+      })
+      observer.observe(node)
+    } else {
+      window.addEventListener('resize', updateHeight)
+    }
+    return () => {
+      if (observer) {
+        observer.disconnect()
+      } else {
+        window.removeEventListener('resize', updateHeight)
+      }
+    }
+  }, [isPinned, onPinnedHeightChange])
 
   const handleRemoveClick = () => {
     if (!eventEditor || !event) return
@@ -937,101 +1011,142 @@ const FileInputsSection = ({
     setIsEditDialogOpen(true)
   }
 
+  const isPinnedSummary = collapsed && isPinned
+  const detailContent = collapsed ? (
+    <JourneyItemDetails
+      marker={marker}
+      showDetailsToggle={!isPinned}
+      variant={isPinnedSummary ? 'compact' : 'default'}
+      timestamp={marker?.timestamp ?? null}
+    />
+  ) : (
+    children
+  )
+
+  const actionGapClass = isPinnedSummary ? 'gap-1.5' : 'gap-2'
+  const iconSize = isPinnedSummary ? 14 : 16
+  const baseButtonClass = isPinnedSummary
+    ? 'flex h-6 w-6 items-center justify-center rounded border border-borderMuted bg-panelMuted/70 text-gray-300 transition hover:bg-panel hover:text-white'
+    : 'flex h-8 w-8 items-center justify-center rounded-lg border border-borderMuted bg-panelMuted text-gray-200 transition hover:bg-panel hover:text-white'
+  const editButtonClass = isPinnedSummary
+    ? 'flex h-6 w-6 items-center justify-center rounded border border-borderMuted bg-panelMuted/70 text-gray-300 transition hover:bg-panel hover:text-white'
+    : 'flex h-8 w-8 items-center justify-center rounded-lg border border-borderMuted bg-panelMuted text-gray-200 transition hover:bg-panel hover:text-white'
+  const navButtonClass = isPinnedSummary
+    ? 'flex h-6 w-7 items-center justify-center text-gray-200 transition hover:bg-panel disabled:cursor-not-allowed disabled:opacity-40 text-[11px]'
+    : 'flex h-8 w-9 items-center justify-center text-gray-200 transition hover:bg-panel disabled:cursor-not-allowed disabled:opacity-40'
+
+  const collapsedActions = collapsed ? (
+    <>
+      <button
+        type="button"
+        onClick={onTogglePin}
+        className={baseButtonClass}
+        aria-label={isPinned ? 'Unpin Current Journey Item' : 'Pin Current Journey Item to bottom'}
+        title={isPinned ? 'Unpin Current Journey Item' : 'Pin Current Journey Item to bottom'}
+      >
+        {isPinned ? <PinOff size={iconSize} /> : <Pin size={iconSize} />}
+      </button>
+      <div className="flex overflow-hidden rounded-xl border border-borderMuted bg-panelMuted/70">
+        <button
+          type="button"
+          onClick={onNavigatePrevious}
+          disabled={disablePrevious}
+          className={navButtonClass}
+          aria-label="Previous event"
+          title="Previous event"
+        >
+          <ChevronLeft size={iconSize} />
+        </button>
+        <button
+          type="button"
+          onClick={onNavigateNext}
+          disabled={disableNext}
+          className={navButtonClass}
+          aria-label="Next event"
+          title="Next event"
+        >
+          <ChevronRight size={iconSize} />
+        </button>
+      </div>
+      {eventEditor && event && (
+        <>
+          <button
+            type="button"
+            onClick={handleEditClick}
+            className={editButtonClass}
+            aria-label="Edit event"
+            title="Edit event"
+          >
+            <Edit2 size={iconSize} />
+          </button>
+          <button
+            type="button"
+            onClick={handleRemoveClick}
+            className={`${isPinnedSummary ? 'flex h-6 w-6' : 'flex h-8 w-8'} items-center justify-center rounded border transition ${
+              isRemoved
+                ? 'border-amber-300/70 text-amber-200 hover:bg-amber-500/10'
+                : 'border-red-400/60 text-red-200 hover:bg-red-500/10'
+            }`}
+            aria-label={isRemoved ? 'Restore event' : 'Remove event'}
+            title={isRemoved ? 'Restore event' : 'Remove event'}
+          >
+            {isRemoved ? <RotateCcw size={iconSize} /> : <Trash2 size={iconSize} />}
+          </button>
+        </>
+      )}
+    </>
+  ) : null
+
   const content = (
     <>
-      <div className={`rounded-2xl border border-borderMuted bg-panelMuted/60 px-4 py-4 ${isPinned ? 'fixed top-0 left-0 right-0 z-[9998] w-screen border-b shadow-2xl' : ''}`}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-xs uppercase tracking-[0.3em] text-gray-500">
-                {collapsed ? 'Current Journey Item' : 'Load Session Files'}
-              </p>
-              {collapsed && marker?.timestamp && (
-                <p className="text-xs uppercase tracking-[0.3em] text-purple-400">
-                  {formatTimestamp(marker.timestamp)}
-                </p>
-              )}
-            </div>
-            <p className={`${collapsed ? 'text-lg font-semibold text-gray-50' : 'text-sm text-gray-300'}`}>
-              {collapsed ? marker?.label ?? 'Select a timeline item to inspect' : status}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            {collapsed && (
-              <>
-                <button
-                  type="button"
-                  onClick={onTogglePin}
-                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-borderMuted bg-panelMuted text-gray-200 transition hover:bg-panel hover:text-white"
-                  aria-label={isPinned ? 'Unpin Current Journey Item' : 'Pin Current Journey Item to top'}
-                  title={isPinned ? 'Unpin Current Journey Item' : 'Pin Current Journey Item to top'}
-                >
-                  {isPinned ? <PinOff size={16} /> : <Pin size={16} />}
-                </button>
-                <div className="flex overflow-hidden rounded-xl border border-borderMuted bg-panelMuted/70">
-                  <button
-                    type="button"
-                    onClick={onNavigatePrevious}
-                    disabled={disablePrevious}
-                    className="flex h-8 w-9 items-center justify-center text-gray-200 transition hover:bg-panel disabled:cursor-not-allowed disabled:opacity-40"
-                    aria-label="Previous event"
-                    title="Previous event"
-                  >
-                    <ChevronLeft size={16} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onNavigateNext}
-                    disabled={disableNext}
-                    className="flex h-8 w-9 items-center justify-center text-gray-200 transition hover:bg-panel disabled:cursor-not-allowed disabled:opacity-40"
-                    aria-label="Next event"
-                    title="Next event"
-                  >
-                    <ChevronRight size={16} />
-                  </button>
-                </div>
-                {eventEditor && event && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={handleEditClick}
-                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-borderMuted bg-panelMuted text-gray-200 transition hover:bg-panel hover:text-white"
-                      aria-label="Edit event"
-                      title="Edit event"
-                    >
-                      <Edit2 size={16} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleRemoveClick}
-                      className={`flex h-8 w-8 items-center justify-center rounded-lg border transition ${
-                        isRemoved
-                          ? 'border-amber-300/70 text-amber-200 hover:bg-amber-500/10'
-                          : 'border-red-400/60 text-red-200 hover:bg-red-500/10'
-                      }`}
-                      aria-label={isRemoved ? 'Restore event' : 'Remove event'}
-                      title={isRemoved ? 'Restore event' : 'Remove event'}
-                    >
-                      {isRemoved ? <RotateCcw size={16} /> : <Trash2 size={16} />}
-                    </button>
-                  </>
-                )}
-              </>
+      <div
+        ref={panelRef}
+        className={`rounded-2xl border border-borderMuted bg-panelMuted/90 ${isPinnedSummary ? 'px-3 py-3' : 'px-4 py-4'} ${isPinned ? 'fixed left-0 right-0 z-[10000] w-screen border-t shadow-2xl' : ''}`}
+        style={isPinned ? { bottom: pinnedOffset } : undefined}
+      >
+        {isPinnedSummary ? (
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">{detailContent}</div>
+            {collapsedActions && (
+              <div className={`flex items-center ${actionGapClass} pr-2.5`}>{collapsedActions}</div>
             )}
-            {canToggle && (
-            <button
-              type="button"
-              onClick={onToggle}
-              className="flex h-8 w-8 items-center justify-center rounded-full border border-borderMuted bg-panel text-gray-200 transition hover:text-white"
-              aria-label={collapsed ? 'Show file pickers' : 'Show Current Journey Item'}
-              title={collapsed ? 'Show file pickers' : 'Show Current Journey Item'}
-            >
-              {collapsed ? <Settings size={16} /> : <FileText size={16} />}
-            </button>
-          )}
           </div>
-        </div>
-        <div className="mt-4">{collapsed ? <JourneyItemDetails marker={marker} /> : children}</div>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs uppercase tracking-[0.3em] text-gray-500">
+                    {collapsed ? 'Current Journey Item' : 'Load Session Files'}
+                  </p>
+                  {collapsed && marker?.timestamp && (
+                    <p className="text-xs uppercase tracking-[0.3em] text-purple-400">
+                      {formatTimestamp(marker.timestamp)}
+                    </p>
+                  )}
+                </div>
+                <p className={`${collapsed ? 'text-lg font-semibold text-gray-50' : 'text-sm text-gray-300'}`}>
+                  {collapsed ? marker?.label ?? 'Select a timeline item to inspect' : status}
+                </p>
+              </div>
+              <div className={`flex items-center ${actionGapClass}`}>
+                {collapsedActions}
+                {canToggle && onToggle && (
+                  <button
+                    type="button"
+                    onClick={onToggle}
+                    className="flex h-8 w-8 items-center justify-center rounded-full border border-borderMuted bg-panel text-gray-200 transition hover:text-white"
+                    aria-label={collapsed ? 'Show file pickers' : 'Show Current Journey Item'}
+                    title={collapsed ? 'Show file pickers' : 'Show Current Journey Item'}
+                  >
+                    {collapsed ? <Settings size={16} /> : <FileText size={16} />}
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="mt-4">{detailContent}</div>
+          </>
+        )}
       </div>
       {isEditDialogOpen && eventEditor && event && (
         <EventEditDialog
@@ -1047,7 +1162,13 @@ const FileInputsSection = ({
   )
 
   if (isPinned && typeof document !== 'undefined') {
-    return createPortal(content, document.body)
+    const placeholderHeight = measuredHeight || 180
+    return (
+      <>
+        <div aria-hidden="true" style={{ height: placeholderHeight, width: '100%' }} />
+        {createPortal(content, document.body)}
+      </>
+    )
   }
 
   return content
@@ -1055,11 +1176,19 @@ const FileInputsSection = ({
 
 const JourneyItemDetails = ({
   marker,
+  showDetailsToggle = true,
+  variant = 'default',
+  timestamp,
 }: {
   marker: TimelineMarker | null
+  showDetailsToggle?: boolean
+  variant?: 'default' | 'compact'
+  timestamp?: number | null
 }) => {
   const expandedStateRef = useRef(false)
   const [expanded, setExpanded] = useState(expandedStateRef.current)
+  const isCompact = variant === 'compact'
+  const chipClass = isCompact ? 'px-2.5 py-0.5 text-[11px]' : ''
 
   const toggleExpanded = () => {
     expandedStateRef.current = !expandedStateRef.current
@@ -1083,34 +1212,44 @@ const JourneyItemDetails = ({
         : 'Event'
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <DetailChip color={marker.color}>{typeLabel}</DetailChip>
+    <div className={`flex flex-col ${isCompact ? 'gap-2' : 'gap-4'}`}>
+      <div className={`flex flex-wrap items-center ${isCompact ? 'gap-2' : 'gap-3'}`}>
+        <DetailChip color={marker.color} className={chipClass}>
+          {typeLabel}
+        </DetailChip>
+        {isCompact && marker.label && (
+          <span className="text-sm font-medium text-gray-100 mr-1">{marker.label}</span>
+        )}
         {marker.from && marker.to && (
-          <DetailChip>
-            {marker.from} <ArrowRight size={14} className="mx-1 inline text-gray-500" /> {marker.to}
+          <DetailChip className={chipClass}>
+            {marker.from} <ArrowRight size={isCompact ? 12 : 14} className="mx-1 inline text-gray-500" /> {marker.to}
           </DetailChip>
         )}
         {event?.method && event.kind === 'request' && (
-          <DetailChip>Method: {event.method}</DetailChip>
+          <DetailChip className={chipClass}>Method: {event.method}</DetailChip>
         )}
-        {event?.type && event.kind === 'request' && <DetailChip>Type: {event.type}</DetailChip>}
+        {event?.type && event.kind === 'request' && <DetailChip className={chipClass}>Type: {event.type}</DetailChip>}
         {(event?.protocol || event?.nextHopProtocol) && event.kind === 'request' && (
-          <DetailChip>{`Protocol: ${event.nextHopProtocol ?? event.protocol}`}</DetailChip>
+          <DetailChip className={chipClass}>{`Protocol: ${event.nextHopProtocol ?? event.protocol}`}</DetailChip>
         )}
         {typeof event?.duration === 'number' && event.kind === 'request' && (
-          <DetailChip>{`Duration: ${formatMs(event.duration)}`}</DetailChip>
+          <DetailChip className={chipClass}>{`Duration: ${formatMs(event.duration)}`}</DetailChip>
         )}
         {typeof event?.status === 'number' && event.kind === 'request' && (
-          <DetailChip className={getStatusChipClass(event.status)}>{`Status: ${event.status}`}</DetailChip>
+          <DetailChip className={`${getStatusChipClass(event.status)} ${chipClass}`}>{`Status: ${event.status}`}</DetailChip>
         )}
-        <button
-          type="button"
-          onClick={toggleExpanded}
-          className="text-sm text-blue-400 underline-offset-2 transition hover:text-blue-300 hover:underline"
-        >
-          {expanded ? 'hide details' : 'view details'}
-        </button>
+        {isCompact && timestamp && (
+          <DetailChip className={`${chipClass} text-gray-400`}>{formatTimestamp(timestamp)}</DetailChip>
+        )}
+        {showDetailsToggle && (
+          <button
+            type="button"
+            onClick={toggleExpanded}
+            className="text-sm text-blue-400 underline-offset-2 transition hover:text-blue-300 hover:underline"
+          >
+            {expanded ? 'hide details' : 'view details'}
+          </button>
+        )}
       </div>
 
       {expanded && (

@@ -4,11 +4,15 @@ type HeaderBarProps = {
   mode?: string
   children?: ReactNode
   actions?: ReactNode
+  modeActions?: ReactNode
 }
 
-const HeaderBar = ({ mode = 'Prototype', children, actions }: HeaderBarProps) => {
+const HeaderBar = ({ mode = 'Prototype', children, actions, modeActions }: HeaderBarProps) => {
   return (
-    <header className="border-b border-borderMuted bg-panel/80 px-6 py-5 backdrop-blur">
+    <header
+      id="journey-viewer-header"
+      className="border-b border-borderMuted bg-panel/80 px-6 py-5 backdrop-blur"
+    >
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -17,9 +21,12 @@ const HeaderBar = ({ mode = 'Prototype', children, actions }: HeaderBarProps) =>
           </div>
           <div className="flex items-center gap-2">
             {actions}
-            <span className="rounded-full border border-borderMuted px-3 py-1 text-xs uppercase tracking-[0.4em] text-gray-400">
-              {mode}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="rounded-full border border-borderMuted px-3 py-1 text-xs uppercase tracking-[0.4em] text-gray-400">
+                {mode}
+              </span>
+              {modeActions}
+            </div>
           </div>
         </div>
         {children}
