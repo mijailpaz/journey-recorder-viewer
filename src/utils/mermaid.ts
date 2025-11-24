@@ -19,11 +19,28 @@ const truncate = (text: string, length: number) => {
 
 const sanitize = (text: string) => String(text ?? '').replace(/"/g, '\\"')
 
+const stripMatrixParams = (pathname: string) =>
+  pathname
+    .split('/')
+    .map((segment) => segment.split(';')[0] ?? '')
+    .join('/')
+
 const normalizePath = (pathname: string | null | undefined) => {
   if (!pathname) {
     return '/'
   }
-  return pathname.replace(/\/+/g, '/')
+  const withoutMatrix = stripMatrixParams(pathname)
+  const normalized = withoutMatrix.replace(/\/+/g, '/')
+  return normalized || '/'
+}
+
+const stripQueryAndFragment = (value: string) => {
+  if (!value) {
+    return ''
+  }
+  const index = value.search(/[?#]/)
+  const base = index === -1 ? value : value.slice(0, index)
+  return stripMatrixParams(base)
 }
 
 const getDefaultClickLabel = (event: TraceEvent) => {
@@ -66,31 +83,9 @@ const isTelemetryRequest = (url: URL) => {
   )
 }
 
-const summarizeQueryParams = (url: URL) => {
-  if (!url.searchParams || Array.from(url.searchParams.keys()).length === 0) {
-    return ''
-  }
-  const maxPairs = 2
-  const parts: string[] = []
-  let count = 0
-  url.searchParams.forEach((value, key) => {
-    if (count < maxPairs) {
-      const sanitizedValue = value.length > 40 ? `${value.slice(0, 39)}…` : value
-      parts.push(`${key}=${sanitizedValue}`)
-    }
-    count += 1
-  })
-  if (count > maxPairs) {
-    parts.push('…')
-  }
-  return parts.join('&')
-}
-
 const formatPathWithParams = (url: URL, { isTelemetry = false } = {}) => {
   const pathname = normalizePath(url.pathname || '/')
-  const summary = summarizeQueryParams(url)
-  const combined = summary ? `${pathname}?${summary}` : pathname
-  const label = isTelemetry ? `Beacon ${combined}` : combined
+  const label = isTelemetry ? `Beacon ${pathname}` : pathname
   return truncate(label, MAX_LABEL_LENGTH)
 }
 
@@ -130,7 +125,7 @@ const formatRequestForMermaid = (event: TraceEvent): RequestLine | null => {
   if (!url) {
     return {
       host: 'server',
-      description: `${method} ${truncate(urlString, MAX_LABEL_LENGTH)}`,
+      description: `${method} ${truncate(stripQueryAndFragment(urlString), MAX_LABEL_LENGTH)}`,
     }
   }
 
