@@ -8,6 +8,7 @@ import HeaderBar from './components/HeaderBar'
 import TimelineSection, { type TimelineMarker } from './components/Timeline'
 import VideoPanel from './components/VideoPanel'
 import type { TraceCapturedBody, TraceEvent, TraceFile, TraceNetworkTimings } from './types/trace'
+import generateMermaidFromTrace from './utils/mermaid'
 
 type LoadedVideo = {
   url: string
@@ -178,10 +179,8 @@ const computeTimeline = (
 function App() {
   const [video, setVideo] = useState<LoadedVideo | null>(null)
   const [traceFile, setTraceFile] = useState<TraceFile | null>(null)
-  const [diagram, setDiagram] = useState('')
-  const [fileNames, setFileNames] = useState<{ video?: string; trace?: string; diagram?: string }>({})
+  const [fileNames, setFileNames] = useState<{ video?: string; trace?: string }>({})
   const [fileError, setFileError] = useState<string | null>(null)
-  const [diagramError, setDiagramError] = useState<string | null>(null)
   const [videoProgressMs, setVideoProgressMs] = useState<number | null>(null)
   const [videoDurationMs, setVideoDurationMs] = useState<number | null>(null)
   const [activeTraceId, setActiveTraceId] = useState<string | number | null>(null)
@@ -243,37 +242,30 @@ function App() {
     }
   }, [])
 
-  const handleDiagramSelect = useCallback(async (file: File | null) => {
-    if (!file) {
-      return
+  const generatedDiagram = useMemo(() => {
+    const events = traceFile?.events ?? null
+    if (!events) {
+      return ''
     }
-    try {
-      const content = await file.text()
-      setDiagram(content)
-      setFileNames((prev) => ({ ...prev, diagram: file.name }))
-      setDiagramError(null)
-    } catch (error) {
-      setDiagram('')
-      setDiagramError('Unable to read the Mermaid file.')
-      console.error('Mermaid file read error', error)
-    }
-  }, [])
+    return generateMermaidFromTrace(events)
+  }, [traceFile])
+
+  const resolvedDiagram = generatedDiagram
+  const diagramDisplayName =
+    traceFile && resolvedDiagram.trim() ? 'Generated from trace JSON' : undefined
 
   const status = useMemo(() => {
     if (fileError) {
       return fileError
     }
-    if (diagramError) {
-      return diagramError
-    }
-    if (video && traceFile && diagram.trim()) {
+    if (video && traceFile) {
       return 'Files loaded – ready to replay'
     }
-    if (video || traceFile || diagram.trim()) {
+    if (video || traceFile) {
       return 'Waiting for remaining files'
     }
     return 'Waiting for files'
-  }, [diagram, diagramError, fileError, traceFile, video])
+  }, [fileError, traceFile, video])
 
   const playbackPercent = useMemo(() => {
     if (
@@ -356,7 +348,7 @@ function App() {
   const disableNext =
     combinedMarkers.length === 0 || activeMarkerIndex === combinedMarkers.length - 1
 
-  const allFilesLoaded = Boolean(video && traceFile && diagram.trim())
+  const allFilesLoaded = Boolean(video && traceFile)
 
   useEffect(() => {
     if (!allFilesLoaded) {
@@ -399,8 +391,10 @@ function App() {
             <FileInputs
               onVideoSelect={handleVideoSelect}
               onTraceSelect={handleTraceSelect}
-              onDiagramSelect={handleDiagramSelect}
-              loadedNames={fileNames}
+              loadedNames={{
+                video: fileNames.video,
+                trace: fileNames.trace,
+              }}
               errorMessage={fileError}
             />
           </FileInputsSection>
@@ -421,13 +415,15 @@ function App() {
           isPinned={isCurrentJourneyItemPinned}
           onTogglePin={() => setIsCurrentJourneyItemPinned(!isCurrentJourneyItemPinned)}
         >
-          <FileInputs
-            onVideoSelect={handleVideoSelect}
-            onTraceSelect={handleTraceSelect}
-            onDiagramSelect={handleDiagramSelect}
-            loadedNames={fileNames}
-            errorMessage={fileError}
-          />
+        <FileInputs
+          onVideoSelect={handleVideoSelect}
+          onTraceSelect={handleTraceSelect}
+          loadedNames={{
+            video: fileNames.video,
+            trace: fileNames.trace,
+          }}
+          errorMessage={fileError}
+        />
         </FileInputsSection>
       )}
 
@@ -441,9 +437,9 @@ function App() {
             onDuration={handleDuration}
           />
           <DiagramPanel
-            diagram={diagram}
-            fileName={fileNames.diagram}
-            errorMessage={diagramError}
+            diagram={resolvedDiagram}
+            fileName={diagramDisplayName}
+            errorMessage={null}
             activeTraceId={activeTraceId}
             activeTraceColor={activeTraceColor}
           />

@@ -4,12 +4,12 @@ A React-based web application for viewing and analyzing recorded user journey se
 
 ## Overview
 
-The Journey Recorder Viewer loads three types of files exported by the Chrome extension:
+The Journey Recorder Viewer loads two files exported by the Chrome extension:
 - **Session Video** (`.webm`) - Recorded screen capture of the user session
 - **Trace JSON** (`.json`) - Timestamped events including clicks and network requests
-- **Sequence Diagram** (`.mmd`) - Mermaid diagram visualizing the user flow
+- **Sequence Diagram** – Generated automatically from the trace JSON (no separate `.mmd` upload required)
 
-The viewer synchronizes video playback with event markers on an interactive timeline, allowing you to navigate through recorded sessions and understand the relationship between user interactions and network activity.
+Video playback stays synchronized with event markers on an interactive timeline so you can navigate through recorded sessions and understand the relationship between user interactions and network activity.
 
 ## Features
 
@@ -18,6 +18,8 @@ The viewer synchronizes video playback with event markers on an interactive time
 - **Playback Sync** - Red indicator line shows current video position across timeline tracks
 - **Click-to-Seek** - Click any timeline marker to jump the video to that moment
 - **Sequence Diagram** - View Mermaid sequence diagrams rendered with dark theme
+- **Auto-Generated Diagrams** - Build Mermaid sequence diagrams directly from the trace JSON—always in sync with the timeline data
+- **Mermaid Export** - Download the generated `.mmd` file to share or tweak the diagram elsewhere
 - **File Management** - Load files individually or together, with clear status indicators
 - **Modern UI** - Dark theme with polished design using Tailwind CSS
 
@@ -88,7 +90,6 @@ The app will be available at `http://localhost:5173` (or the port shown in the t
 3. Use the file pickers in the header to load:
    - A `.webm` video file
    - A `.json` trace file
-   - A `.mmd` Mermaid diagram file
 4. Once all files are loaded, you can:
    - Play the video and watch the red sync line move across the timeline
    - Click timeline markers to seek the video to specific events
@@ -114,12 +115,16 @@ npm run preview
 
 1. **Load Session Video**: Click "Choose file" under "Session Video (.webm)" and select your exported video file
 2. **Load Trace JSON**: Click "Choose file" under "Trace JSON" and select your exported trace file
-3. **Load Sequence Diagram**: Click "Choose file" under "Sequence Diagram (.mmd)" and select your exported Mermaid diagram
-
 Files can be loaded in any order. The status bar at the bottom shows the current state:
 - "Waiting for files" - No files loaded
 - "Waiting for remaining files" - Some files loaded
 - "Files loaded – ready to replay" - All files loaded
+
+### Exporting the Sequence Diagram
+
+- Open the sequence diagram panel and use the download button in the top-right controls to save the current diagram as a `.mmd` file.
+- Use the copy button to send the Mermaid source to your clipboard if you want to paste it elsewhere.
+- The fullscreen button expands the diagram for easier inspection before exporting.
 
 ### Interacting with the Timeline
 
@@ -163,28 +168,13 @@ The trace JSON file should follow this structure:
 }
 ```
 
-### Mermaid Diagram Format
-
-The `.mmd` file should contain a valid Mermaid sequence diagram. Example:
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant Browser
-    participant API
-    
-    User->>Browser: Click Submit
-    Browser->>API: POST /api/submit
-    API-->>Browser: 200 OK
-```
-
 ## Relationship to Chrome Extension
 
 This viewer is designed to work with the **Journey Flow Recorder** Chrome extension. The extension records user sessions and exports:
 
 1. `journey.webm` - Screen recording
 2. `trace.json` - Event timeline data
-3. `flow.mmd` - Mermaid sequence diagram
+3. `flow.mmd` - Mermaid sequence diagram (not required by the viewer, which generates its own diagram from the trace)
 
 After recording a session with the extension, use this viewer to:
 - Review the recorded session
@@ -205,8 +195,8 @@ After recording a session with the extension, use this viewer to:
 - Verify the video file matches the trace file from the same recording session
 
 ### Mermaid diagram doesn't render
-- Check that the `.mmd` file contains valid Mermaid syntax
-- Ensure the file is properly formatted (UTF-8 encoding)
+- Verify that the trace JSON includes click events followed by network requests—the viewer generates diagrams from this data
+- Reload the trace file if it was edited manually
 
 ### Timeline markers don't appear
 - Verify the trace JSON has an `events` array with valid event objects

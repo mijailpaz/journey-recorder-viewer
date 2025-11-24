@@ -34,22 +34,14 @@ const FilePicker = ({ id, label, accept, onSelect, fileName }: FileInputProps) =
 type FileInputsProps = {
   onVideoSelect: (file: File | null) => void
   onTraceSelect: (file: File | null) => void
-  onDiagramSelect: (file: File | null) => void
   loadedNames: {
     video?: string
     trace?: string
-    diagram?: string
   }
   errorMessage?: string | null
 }
 
-const FileInputs = ({
-  onVideoSelect,
-  onTraceSelect,
-  onDiagramSelect,
-  loadedNames,
-  errorMessage,
-}: FileInputsProps) => {
+const FileInputs = ({ onVideoSelect, onTraceSelect, loadedNames, errorMessage }: FileInputsProps) => {
   return (
     <div className="flex w-full flex-col gap-3">
       <div className="flex flex-col gap-3 lg:flex-row">
@@ -66,13 +58,6 @@ const FileInputs = ({
           accept="application/json"
           onSelect={onTraceSelect}
           fileName={loadedNames.trace}
-        />
-        <FilePicker
-          id="mermaid-input"
-          label="Sequence Diagram (.mmd)"
-          accept=".mmd,text/plain"
-          onSelect={onDiagramSelect}
-          fileName={loadedNames.diagram}
         />
       </div>
       {errorMessage && <p className="text-sm text-red-400">{errorMessage}</p>}

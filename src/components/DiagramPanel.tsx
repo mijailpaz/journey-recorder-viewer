@@ -8,6 +8,7 @@ import {
   ChevronRight,
   ChevronUp,
   Copy,
+  Download,
   RotateCcw,
   X,
   ZoomIn,
@@ -322,6 +323,26 @@ const DiagramPanel = ({
     }
   }
 
+  const handleDownloadDiagram = () => {
+    if (!hasDiagram || typeof document === 'undefined') {
+      return
+    }
+    try {
+      const blob = new Blob([diagram], { type: 'text/plain' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      const baseName = 'flow'
+      link.href = url
+      link.download = `${baseName}.mmd`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      console.error('Download Mermaid diagram failed', error)
+    }
+  }
+
   return (
     <>
       <section className="panel flex h-full flex-col gap-3 p-4">
@@ -354,6 +375,7 @@ const DiagramPanel = ({
               copyStatus={copyStatus}
               onOpenFullscreen={handleOpenFullscreen}
               onCopyDiagram={handleCopyDiagram}
+              onDownloadDiagram={hasDiagram ? handleDownloadDiagram : undefined}
             />
           </>
         ) : (
@@ -453,10 +475,16 @@ const ControlSpacer = () => <div className="h-8 w-8" aria-hidden="true" />
 type DiagramActionsProps = {
   onOpenFullscreen: () => void
   onCopyDiagram: () => void
+  onDownloadDiagram?: () => void
   copyStatus: CopyStatus
 }
 
-const DiagramActions = ({ onOpenFullscreen, onCopyDiagram, copyStatus }: DiagramActionsProps) => {
+const DiagramActions = ({
+  onOpenFullscreen,
+  onCopyDiagram,
+  onDownloadDiagram,
+  copyStatus,
+}: DiagramActionsProps) => {
   const copyLabel =
     copyStatus === 'copied'
       ? 'Diagram copied'
@@ -470,6 +498,11 @@ const DiagramActions = ({ onOpenFullscreen, onCopyDiagram, copyStatus }: Diagram
         <ActionButton label="Open diagram fullscreen" onClick={onOpenFullscreen}>
           <ArrowLeftRight size={16} strokeWidth={2.2} />
         </ActionButton>
+        {onDownloadDiagram && (
+          <ActionButton label="Download Mermaid diagram (.mmd)" onClick={onDownloadDiagram}>
+            <Download size={16} strokeWidth={2.2} />
+          </ActionButton>
+        )}
         <ActionButton label={copyLabel} onClick={onCopyDiagram}>
           {copyStatus === 'copied' ? (
             <Check size={16} strokeWidth={2.2} />

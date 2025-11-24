@@ -1,0 +1,197 @@
+import type { TraceEvent } from '../types/trace'
+
+const TELEMETRY_HOST_PATTERNS = ['online-metrix', 'doubleclick', 'pixel']
+const TELEMETRY_PATH_PATTERNS = ['pixel', 'clear', 'beacon', 'collect']
+const MAX_LABEL_LENGTH = 140
+
+type RequestLine = {
+  host: string
+  description: string
+  skipResponse?: boolean
+}
+
+const truncate = (text: string, length: number) => {
+  if (text.length <= length) {
+    return text
+  }
+  return `${text.slice(0, length - 1)}…`
+}
+
+const sanitize = (text: string) => String(text ?? '').replace(/"/g, '\\"')
+
+const normalizePath = (pathname: string | null | undefined) => {
+  if (!pathname) {
+    return '/'
+  }
+  return pathname.replace(/\/+/g, '/')
+}
+
+const getDefaultClickLabel = (event: TraceEvent) => {
+  const base = (event.text || event.selector || event.label || 'Click').replace(/\s+/g, ' ').trim()
+  return base || 'Click'
+}
+
+const getClickLabel = (event: TraceEvent) => {
+  const explicit = typeof event.label === 'string' ? event.label.trim() : ''
+  if (explicit) {
+    return explicit
+  }
+  return getDefaultClickLabel(event)
+}
+
+const safeUrl = (value: string | undefined) => {
+  if (!value) {
+    return null
+  }
+  try {
+    return new URL(value)
+  } catch {
+    try {
+      return new URL(`https://${value}`)
+    } catch {
+      return null
+    }
+  }
+}
+
+const isTelemetryRequest = (url: URL) => {
+  const host = (url.host || '').toLowerCase()
+  const path = (url.pathname || '').toLowerCase()
+  if (!host && !path) {
+    return false
+  }
+  return (
+    TELEMETRY_HOST_PATTERNS.some((pattern) => host.includes(pattern)) ||
+    TELEMETRY_PATH_PATTERNS.some((pattern) => path.includes(pattern))
+  )
+}
+
+const summarizeQueryParams = (url: URL) => {
+  if (!url.searchParams || Array.from(url.searchParams.keys()).length === 0) {
+    return ''
+  }
+  const maxPairs = 2
+  const parts: string[] = []
+  let count = 0
+  url.searchParams.forEach((value, key) => {
+    if (count < maxPairs) {
+      const sanitizedValue = value.length > 40 ? `${value.slice(0, 39)}…` : value
+      parts.push(`${key}=${sanitizedValue}`)
+    }
+    count += 1
+  })
+  if (count > maxPairs) {
+    parts.push('…')
+  }
+  return parts.join('&')
+}
+
+const formatPathWithParams = (url: URL, { isTelemetry = false } = {}) => {
+  const pathname = normalizePath(url.pathname || '/')
+  const summary = summarizeQueryParams(url)
+  const combined = summary ? `${pathname}?${summary}` : pathname
+  const label = isTelemetry ? `Beacon ${combined}` : combined
+  return truncate(label, MAX_LABEL_LENGTH)
+}
+
+const normalizeHost = (host: string | null | undefined) => {
+  if (!host) {
+    return 'server'
+  }
+  return host.replace(/^www\./i, '')
+}
+
+const isDataUrl = (value: string | undefined) =>
+  typeof value === 'string' && value.startsWith('data:')
+
+const summarizeDataUrl = (value: string) => {
+  const match = /^data:([^;,]+)/.exec(value)
+  const mime = match ? match[1] : 'embedded asset'
+  return mime.length > 40 ? `${mime.slice(0, 39)}…` : `data:${mime}`
+}
+
+const formatRequestForMermaid = (event: TraceEvent): RequestLine | null => {
+  const method = event.method || 'GET'
+  const urlString = event.url || event.targetUrl || event.path || ''
+
+  if (!urlString) {
+    return { host: 'server', description: `${method} request` }
+  }
+
+  if (isDataUrl(urlString)) {
+    return {
+      host: 'embedded_asset',
+      description: `${method} ${summarizeDataUrl(urlString)}`,
+      skipResponse: true,
+    }
+  }
+
+  const url = safeUrl(urlString)
+  if (!url) {
+    return {
+      host: 'server',
+      description: `${method} ${truncate(urlString, MAX_LABEL_LENGTH)}`,
+    }
+  }
+
+  const host = normalizeHost(url.host)
+  const description = `${method} ${formatPathWithParams(url, { isTelemetry: isTelemetryRequest(url) })}`
+  return {
+    host,
+    description,
+    skipResponse: false,
+  }
+}
+
+export const generateMermaidFromTrace = (events?: TraceEvent[] | null): string => {
+  const lines = ['sequenceDiagram', '  autonumber']
+  if (!events || events.length === 0) {
+    lines.push('  Note over User,WebApp: No events recorded')
+    return lines.join('\n')
+  }
+
+  let hasOutput = false
+  let hasActiveClick = false
+
+  events.forEach((event) => {
+    if (event.kind === 'click') {
+      const label = getClickLabel(event)
+      if (event.id !== undefined) {
+        lines.push(`  %%${event.id}`)
+      }
+      lines.push(`  User->>WebApp: Click "${sanitize(label)}"`)
+      hasOutput = true
+      hasActiveClick = true
+      return
+    }
+
+    if (event.kind === 'request') {
+      if (!hasActiveClick) {
+        return
+      }
+      const requestLine = formatRequestForMermaid(event)
+      if (!requestLine) {
+        return
+      }
+      if (event.id !== undefined) {
+        lines.push(`  %%${event.id}`)
+      }
+      lines.push(`  WebApp->>${requestLine.host}: ${requestLine.description}`)
+      if (!requestLine.skipResponse) {
+        const status = event.status ?? 'unknown'
+        const statusText = (event.statusText || '').trim()
+        lines.push(`  ${requestLine.host}-->>WebApp: ${status}${statusText ? ` ${statusText}` : ''}`)
+      }
+      hasOutput = true
+    }
+  })
+
+  if (!hasOutput) {
+    lines.push('  Note over User,WebApp: No click-driven events recorded')
+  }
+
+  return lines.join('\n')
+}
+
+export default generateMermaidFromTrace
+
