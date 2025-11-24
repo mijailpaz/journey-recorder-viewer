@@ -20,6 +20,8 @@ Video playback stays synchronized with event markers on an interactive timeline 
 - **Sequence Diagram** - View Mermaid sequence diagrams rendered with dark theme
 - **Auto-Generated Diagrams** - Build Mermaid sequence diagrams directly from the trace JSON—always in sync with the timeline data
 - **Mermaid Export** - Download the generated `.mmd` file to share or tweak the diagram elsewhere
+- **Event Editing** - Update click/request labels or remove noisy events right from the Current Journey Item panel
+- **Trace Filtering** - Apply the Chrome extension’s preset/custom regex filters and preview the JSON output before exporting
 - **File Management** - Load files individually or together, with clear status indicators
 - **Modern UI** - Dark theme with polished design using Tailwind CSS
 

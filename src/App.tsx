@@ -1,21 +1,61 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { ArrowRight, ChevronLeft, ChevronRight, FileText, Pin, PinOff, Settings } from 'lucide-react'
+import {
+  ArrowRight,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  Edit2,
+  FileText,
+  Pin,
+  PinOff,
+  RotateCcw,
+  Settings,
+  Trash2,
+  X,
+} from 'lucide-react'
 import DiagramPanel from './components/DiagramPanel'
 import FileInputs from './components/FileInputs'
 import FooterBar from './components/FooterBar'
 import HeaderBar from './components/HeaderBar'
 import TimelineSection, { type TimelineMarker } from './components/Timeline'
+import TraceSettingsPanel from './components/TraceSettingsPanel'
 import VideoPanel from './components/VideoPanel'
 import type { TraceCapturedBody, TraceEvent, TraceFile, TraceNetworkTimings } from './types/trace'
 import generateMermaidFromTrace from './utils/mermaid'
+import {
+  applyTraceFilters,
+  createDefaultFilterSettings,
+  type TraceFilterSettings,
+} from './utils/traceFilters'
 
 type LoadedVideo = {
   url: string
   name: string
 }
 
+type EventOverride = {
+  label?: string
+  removed?: boolean
+}
+
+type EventOverrideMap = Record<string, EventOverride>
+
 const clampPercent = (value: number) => Math.min(100, Math.max(0, value))
+
+const generateInternalId = (seed: number) => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `jr-${Date.now()}-${seed}-${Math.random().toString(36).slice(2)}`
+}
+
+const ensureInternalIds = (trace: TraceFile): TraceFile => {
+  const eventsWithIds = (trace.events ?? []).map((event, index) =>
+    event.jrInternalId ? event : { ...event, jrInternalId: generateInternalId(index) },
+  )
+  return { ...trace, events: eventsWithIds }
+}
 
 const buildDetails = (event: TraceEvent) => {
   const details: string[] = []
@@ -66,6 +106,32 @@ const extractEndpointName = (event: TraceEvent) => {
 const getEventKey = (event: TraceEvent, index: number) => {
   const raw = event.id ?? `${event.kind}-${index}`
   return String(raw)
+}
+
+const getEventInternalId = (event: TraceEvent, fallback: string) =>
+  event.jrInternalId ?? fallback
+
+const applyEventOverridesToEvents = (events: TraceEvent[], overrides: EventOverrideMap) => {
+  if (!events.length) {
+    return []
+  }
+  return events.reduce<TraceEvent[]>((acc, event) => {
+    const internalId = event.jrInternalId
+    if (internalId) {
+      const override = overrides[internalId]
+      if (override) {
+        if (override.removed) {
+          return acc
+        }
+        if (override.label != null && override.label !== event.label) {
+          acc.push({ ...event, label: override.label })
+          return acc
+        }
+      }
+    }
+    acc.push(event)
+    return acc
+  }, [])
 }
 
 const formatTimestamp = (ts: number | null | undefined) => {
@@ -122,7 +188,7 @@ const computeTimeline = (
   let lastClick: TraceEvent | null = null
   for (let i = 0; i < events.length; i += 1) {
     const event = events[i]
-    const key = getEventKey(event, i)
+    const key = getEventInternalId(event, getEventKey(event, i))
     if (event.kind === 'click') {
       lastClick = event
       const related: TraceEvent[] = []
@@ -147,9 +213,10 @@ const computeTimeline = (
     const label = event.label ?? event.text ?? event.path ?? event.method ?? event.kind
     const color = event.kind === 'click' ? '#f5d742' : '#4aa3ff'
     const participants = deriveParticipants(event)
-    const eventKey = getEventKey(event, index)
+    const eventKey = getEventInternalId(event, getEventKey(event, index))
+    const markerId = getEventInternalId(event, `${event.kind}-${event.id ?? index}`)
     return {
-      id: `${event.kind}-${event.id ?? index}`,
+      id: markerId,
       position,
       label,
       details: buildDetails(event),
@@ -178,7 +245,7 @@ const computeTimeline = (
 
 function App() {
   const [video, setVideo] = useState<LoadedVideo | null>(null)
-  const [traceFile, setTraceFile] = useState<TraceFile | null>(null)
+  const [loadedTraceFile, setLoadedTraceFile] = useState<TraceFile | null>(null)
   const [fileNames, setFileNames] = useState<{ video?: string; trace?: string }>({})
   const [fileError, setFileError] = useState<string | null>(null)
   const [videoProgressMs, setVideoProgressMs] = useState<number | null>(null)
@@ -190,14 +257,34 @@ function App() {
   const [fileInputsCollapsed, setFileInputsCollapsed] = useState(false)
   const [isTimelinePinned, setIsTimelinePinned] = useState(false)
   const [isCurrentJourneyItemPinned, setIsCurrentJourneyItemPinned] = useState(false)
+  const [eventOverrides, setEventOverrides] = useState<EventOverrideMap>({})
+  const [filterSettings, setFilterSettings] = useState<TraceFilterSettings>(createDefaultFilterSettings())
   const videoRef = useRef<HTMLVideoElement>(null)
   const autoCollapsedRef = useRef(false)
 
-  const videoAnchorTs = traceFile?.videoStartedAt ?? null
+  const manualEvents = useMemo(
+    () => applyEventOverridesToEvents(loadedTraceFile?.events ?? [], eventOverrides),
+    [loadedTraceFile, eventOverrides],
+  )
+
+  const filterResult = useMemo(
+    () => applyTraceFilters(manualEvents, filterSettings),
+    [manualEvents, filterSettings],
+  )
+
+  const filteredTrace: TraceFile | null = useMemo(() => {
+    if (!loadedTraceFile) {
+      return null
+    }
+    const clonedEvents = filterResult.filteredEvents.map((event) => ({ ...event }))
+    return { ...loadedTraceFile, events: clonedEvents }
+  }, [loadedTraceFile, filterResult.filteredEvents])
+
+  const videoAnchorTs = filteredTrace?.videoStartedAt ?? null
 
   const timeline = useMemo(
-    () => computeTimeline(traceFile, videoAnchorTs, videoDurationMs),
-    [traceFile, videoAnchorTs, videoDurationMs],
+    () => computeTimeline(filteredTrace, videoAnchorTs, videoDurationMs),
+    [filteredTrace, videoAnchorTs, videoDurationMs],
   )
 
   const handleVideoSelect = useCallback((file: File | null) => {
@@ -232,40 +319,137 @@ function App() {
     try {
       const content = await file.text()
       const parsed = JSON.parse(content) as TraceFile
-      setTraceFile(parsed)
+      const normalized = ensureInternalIds(parsed)
+      setLoadedTraceFile(normalized)
       setFileNames((prev) => ({ ...prev, trace: file.name }))
       setFileError(null)
+      setEventOverrides({})
+      setFilterSettings(createDefaultFilterSettings())
+      setActiveMarker(null)
+      setActiveMarkerId(null)
+      setActiveTraceId(null)
+      setActiveTraceColor(null)
     } catch (error) {
-      setTraceFile(null)
+      setLoadedTraceFile(null)
+      setEventOverrides({})
       setFileError('Unable to parse the trace JSON file.')
       console.error('Trace parse error', error)
     }
   }, [])
 
+  const handleDownloadFilteredTrace = useCallback(() => {
+    if (!filteredTrace) {
+      return
+    }
+    const blob = new Blob([JSON.stringify(filteredTrace, null, 2)], {
+      type: 'application/json',
+    })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    const baseName = fileNames.trace ? fileNames.trace.replace(/\.json$/i, '') : 'trace'
+    link.href = url
+    link.download = `${baseName}-filtered.json`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }, [filteredTrace, fileNames.trace])
+
   const generatedDiagram = useMemo(() => {
-    const events = traceFile?.events ?? null
+    const events = filteredTrace?.events ?? null
     if (!events) {
       return ''
     }
     return generateMermaidFromTrace(events)
-  }, [traceFile])
+  }, [filteredTrace])
 
   const resolvedDiagram = generatedDiagram
   const diagramDisplayName =
-    traceFile && resolvedDiagram.trim() ? 'Generated from trace JSON' : undefined
+    filteredTrace && resolvedDiagram.trim() ? 'Generated from trace JSON' : undefined
 
   const status = useMemo(() => {
     if (fileError) {
       return fileError
     }
-    if (video && traceFile) {
+    if (video && loadedTraceFile) {
       return 'Files loaded – ready to replay'
     }
-    if (video || traceFile) {
+    if (video || loadedTraceFile) {
       return 'Waiting for remaining files'
     }
     return 'Waiting for files'
-  }, [fileError, traceFile, video])
+  }, [fileError, loadedTraceFile, video])
+
+  const ignoredCounts = filterResult.ignoredCounts
+  const removedEvents = useMemo(() => {
+    if (!loadedTraceFile?.events) {
+      return []
+    }
+    return loadedTraceFile.events.filter(
+      (event) => event.jrInternalId && eventOverrides[event.jrInternalId]?.removed,
+    )
+  }, [loadedTraceFile, eventOverrides])
+  const manualRemovalCount = removedEvents.length
+  const hasEventOverrides = useMemo(() => Object.keys(eventOverrides).length > 0, [eventOverrides])
+  
+  const totalFilteredCount = useMemo(() => {
+    return Object.values(ignoredCounts).reduce((sum, count) => sum + (count ?? 0), 0)
+  }, [ignoredCounts])
+  const hasFilterChanges = useMemo(() => {
+    const baseline = createDefaultFilterSettings()
+    if (filterSettings.applyFilters !== baseline.applyFilters) {
+      return true
+    }
+    if (filterSettings.customRegexText !== baseline.customRegexText) {
+      return true
+    }
+    if (filterSettings.groups.length !== baseline.groups.length) {
+      return true
+    }
+    for (let i = 0; i < filterSettings.groups.length; i += 1) {
+      const group = filterSettings.groups[i]
+      const base = baseline.groups[i]
+      if (!base) {
+        return true
+      }
+      if (
+        group.id !== base.id ||
+        group.enabled !== base.enabled ||
+        group.patternsText !== base.patternsText
+      ) {
+        return true
+      }
+    }
+    return false
+  }, [filterSettings])
+
+  const hasTraceModifications = Boolean(
+    filteredTrace && (hasEventOverrides || hasFilterChanges),
+  )
+
+  const originalEventMap = useMemo(() => {
+    const map = new Map<string, TraceEvent>()
+    loadedTraceFile?.events?.forEach((event) => {
+      if (event.jrInternalId) {
+        map.set(event.jrInternalId, event)
+      }
+    })
+    return map
+  }, [loadedTraceFile])
+
+  const labelEditCount = useMemo(() => {
+    let count = 0
+    Object.entries(eventOverrides).forEach(([internalId, override]) => {
+      if (override.label != null && !override.removed) {
+        const original = originalEventMap.get(internalId)
+        const originalLabel = original?.label ?? ''
+        if (override.label !== originalLabel) {
+          count += 1
+        }
+      }
+    })
+    return count
+  }, [eventOverrides, originalEventMap])
 
   const playbackPercent = useMemo(() => {
     if (
@@ -287,6 +471,128 @@ function App() {
   const handleDuration = useCallback((durationMs: number) => {
     setVideoDurationMs(durationMs)
   }, [])
+
+  const getOverrideForEvent = useCallback(
+    (event: TraceEvent | null | undefined) => {
+      if (!event?.jrInternalId) {
+        return undefined
+      }
+      return eventOverrides[event.jrInternalId]
+    },
+    [eventOverrides],
+  )
+
+  const updateEventLabel = useCallback(
+    (event: TraceEvent, nextLabel: string) => {
+      const internalId = event?.jrInternalId
+      if (!internalId) {
+        return
+      }
+      setEventOverrides((prev) => {
+        const originalLabel = originalEventMap.get(internalId)?.label ?? ''
+        const normalized = nextLabel ?? ''
+        const current = prev[internalId]
+        if (normalized === originalLabel) {
+          if (current?.removed) {
+            if (current.label == null) {
+              return prev
+            }
+            return { ...prev, [internalId]: { removed: true } }
+          }
+          if (!(internalId in prev)) {
+            return prev
+          }
+          const { [internalId]: _omit, ...rest } = prev
+          return rest
+        }
+        return {
+          ...prev,
+          [internalId]: { ...current, label: normalized },
+        }
+      })
+    },
+    [originalEventMap],
+  )
+
+  const toggleEventRemoval = useCallback(
+    (event: TraceEvent, removed: boolean) => {
+      const internalId = event?.jrInternalId
+      if (!internalId) {
+        return
+      }
+      setEventOverrides((prev) => {
+        const current = prev[internalId]
+        if (removed) {
+          if (current?.removed) {
+            return prev
+          }
+          return {
+            ...prev,
+            [internalId]: { ...current, removed: true },
+          }
+        }
+        if (current?.label) {
+          const originalLabel = originalEventMap.get(internalId)?.label ?? ''
+          if (current.label !== originalLabel) {
+            return {
+              ...prev,
+              [internalId]: { label: current.label },
+            }
+          }
+        }
+        if (!(internalId in prev)) {
+          return prev
+        }
+        const { [internalId]: _omit, ...rest } = prev
+        return rest
+      })
+    },
+    [originalEventMap],
+  )
+
+  const resetEventChanges = useCallback((event: TraceEvent) => {
+    const internalId = event?.jrInternalId
+    if (!internalId) {
+      return
+    }
+    setEventOverrides((prev) => {
+      if (!(internalId in prev)) {
+        return prev
+      }
+      const { [internalId]: _omit, ...rest } = prev
+      return rest
+    })
+  }, [])
+
+  const getOriginalEventFor = useCallback(
+    (event: TraceEvent) => {
+      if (!event?.jrInternalId) {
+        return null
+      }
+      return originalEventMap.get(event.jrInternalId) ?? null
+    },
+    [originalEventMap],
+  )
+
+  const restoreEventByInternalId = useCallback(
+    (internalId: string) => {
+      setEventOverrides((prev) => {
+        const current = prev[internalId]
+        if (!current) {
+          return prev
+        }
+        if (current.label) {
+          const originalLabel = originalEventMap.get(internalId)?.label ?? ''
+          if (current.label !== originalLabel) {
+            return { ...prev, [internalId]: { label: current.label } }
+          }
+        }
+        const { [internalId]: _omit, ...rest } = prev
+        return rest
+      })
+    },
+    [originalEventMap],
+  )
 
   const combinedMarkers = useMemo(() => {
     return [...timeline.clicks, ...timeline.requests]
@@ -344,11 +650,15 @@ function App() {
     [combinedMarkers, activeMarkerIndex, handleMarkerSelect],
   )
 
+  const handleResetFilters = useCallback(() => {
+    setFilterSettings(createDefaultFilterSettings())
+  }, [])
+
   const disablePrevious = combinedMarkers.length === 0 || activeMarkerIndex <= 0
   const disableNext =
     combinedMarkers.length === 0 || activeMarkerIndex === combinedMarkers.length - 1
 
-  const allFilesLoaded = Boolean(video && traceFile)
+  const allFilesLoaded = Boolean(video && loadedTraceFile)
 
   useEffect(() => {
     if (!allFilesLoaded) {
@@ -371,10 +681,95 @@ function App() {
     }
   }, [allFilesLoaded, combinedMarkers, activeMarkerIndex, handleMarkerSelect])
 
+  // Update active marker when timeline changes (e.g., after label edits)
+  useEffect(() => {
+    if (activeMarkerId && combinedMarkers.length > 0) {
+      const updatedMarker = combinedMarkers.find((marker) => marker.id === activeMarkerId)
+      if (updatedMarker) {
+        // Always update to reflect latest data (e.g., edited labels)
+        setActiveMarker(updatedMarker)
+        if (updatedMarker.traceId != null) {
+          setActiveTraceId(updatedMarker.traceId)
+        } else {
+          setActiveTraceId(null)
+        }
+        setActiveTraceColor(updatedMarker.color ?? null)
+      }
+    }
+  }, [combinedMarkers, activeMarkerId])
+
+  const fileInputsContent = (
+    <div className="flex w-full flex-col gap-5">
+      <FileInputs
+        onVideoSelect={handleVideoSelect}
+        onTraceSelect={handleTraceSelect}
+        loadedNames={{
+          video: fileNames.video,
+          trace: fileNames.trace,
+        }}
+        errorMessage={fileError}
+      />
+      {loadedTraceFile && (
+        <TraceSettingsPanel
+          rawTrace={loadedTraceFile}
+          filteredTrace={filteredTrace}
+          settings={filterSettings}
+          ignoredCounts={ignoredCounts}
+          manualRemovalCount={manualRemovalCount}
+          removedEvents={removedEvents}
+          onRestoreEvent={restoreEventByInternalId}
+          onUpdateSettings={setFilterSettings}
+          onResetFilters={handleResetFilters}
+        />
+      )}
+    </div>
+  )
+
+  const downloadTooltipContent = useMemo(() => {
+    if (!hasTraceModifications) {
+      return null
+    }
+    const parts: string[] = []
+    if (labelEditCount > 0) {
+      parts.push(`${labelEditCount} label${labelEditCount > 1 ? 's' : ''} edited`)
+    }
+    if (manualRemovalCount > 0) {
+      parts.push(`${manualRemovalCount} event${manualRemovalCount > 1 ? 's' : ''} removed`)
+    }
+    if (totalFilteredCount > 0) {
+      parts.push(`${totalFilteredCount} event${totalFilteredCount > 1 ? 's' : ''} filtered`)
+    }
+    return parts.length > 0 ? parts.join(' • ') : 'Trace modified'
+  }, [hasTraceModifications, labelEditCount, manualRemovalCount, totalFilteredCount])
+
+  const headerActions = hasTraceModifications ? (
+    <div className="group relative">
+      <button
+        type="button"
+        onClick={handleDownloadFilteredTrace}
+        className="relative flex h-9 w-9 items-center justify-center rounded-full border border-borderMuted text-gray-200 transition hover:bg-panel hover:text-white"
+        aria-label={downloadTooltipContent ?? 'Download updated trace JSON'}
+      >
+        <Download size={16} />
+        <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-accent shadow-[0_0_6px_rgba(245,215,66,0.8)]" />
+      </button>
+      {downloadTooltipContent && (
+        <div className="pointer-events-none absolute top-full right-0 mt-2 hidden w-64 rounded-lg border border-borderMuted bg-panel px-3 py-2 text-xs text-gray-200 shadow-lg group-hover:block z-50">
+          <p className="font-semibold text-gray-100 mb-1">Download updated trace</p>
+          <p className="text-gray-400">{downloadTooltipContent}</p>
+          <p className="mt-2 text-gray-500">Includes all edits and filters</p>
+          <div className="absolute -top-1 right-4">
+            <div className="h-2 w-2 rotate-45 border-l border-t border-borderMuted bg-panel" />
+          </div>
+        </div>
+      )}
+    </div>
+  ) : null
+
   return (
     <div className="flex min-h-screen flex-col bg-canvas">
       {!isCurrentJourneyItemPinned && (
-        <HeaderBar>
+        <HeaderBar actions={headerActions}>
           <FileInputsSection
             collapsed={fileInputsCollapsed}
             canToggle={allFilesLoaded}
@@ -387,16 +782,15 @@ function App() {
             onNavigateNext={() => handleNavigate('next')}
             isPinned={isCurrentJourneyItemPinned}
             onTogglePin={() => setIsCurrentJourneyItemPinned(!isCurrentJourneyItemPinned)}
+            eventEditor={{
+              getOverrideForEvent,
+              updateLabel: updateEventLabel,
+              toggleRemoval: toggleEventRemoval,
+              reset: resetEventChanges,
+              getOriginalEvent: getOriginalEventFor,
+            }}
           >
-            <FileInputs
-              onVideoSelect={handleVideoSelect}
-              onTraceSelect={handleTraceSelect}
-              loadedNames={{
-                video: fileNames.video,
-                trace: fileNames.trace,
-              }}
-              errorMessage={fileError}
-            />
+            {fileInputsContent}
           </FileInputsSection>
         </HeaderBar>
       )}
@@ -414,16 +808,15 @@ function App() {
           onNavigateNext={() => handleNavigate('next')}
           isPinned={isCurrentJourneyItemPinned}
           onTogglePin={() => setIsCurrentJourneyItemPinned(!isCurrentJourneyItemPinned)}
-        >
-        <FileInputs
-          onVideoSelect={handleVideoSelect}
-          onTraceSelect={handleTraceSelect}
-          loadedNames={{
-            video: fileNames.video,
-            trace: fileNames.trace,
+          eventEditor={{
+            getOverrideForEvent,
+            updateLabel: updateEventLabel,
+            toggleRemoval: toggleEventRemoval,
+            reset: resetEventChanges,
+            getOriginalEvent: getOriginalEventFor,
           }}
-          errorMessage={fileError}
-        />
+        >
+          {fileInputsContent}
         </FileInputsSection>
       )}
 
@@ -495,6 +888,15 @@ type FileInputsSectionProps = {
   onNavigateNext: () => void
   isPinned: boolean
   onTogglePin: () => void
+  eventEditor?: JourneyEventEditorProps
+}
+
+type JourneyEventEditorProps = {
+  getOverrideForEvent: (event: TraceEvent | null | undefined) => EventOverride | undefined
+  updateLabel: (event: TraceEvent, nextLabel: string) => void
+  toggleRemoval: (event: TraceEvent, removed: boolean) => void
+  reset: (event: TraceEvent) => void
+  getOriginalEvent: (event: TraceEvent) => TraceEvent | null
 }
 
 const FileInputsSection = ({
@@ -509,77 +911,139 @@ const FileInputsSection = ({
   onNavigateNext,
   isPinned,
   onTogglePin,
+  eventEditor,
   children,
 }: FileInputsSectionProps) => {
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const event = marker?.event
+  const editorOverride = eventEditor && event ? eventEditor.getOverrideForEvent(event) : undefined
+  const originalEvent = eventEditor && event ? eventEditor.getOriginalEvent(event) : null
+  const isRemoved = editorOverride?.removed ?? false
+
+  const handleRemoveClick = () => {
+    if (!eventEditor || !event) return
+    if (!isRemoved) {
+      const confirmed = window.confirm('Remove this event from the timeline and diagram?')
+      if (!confirmed) {
+        return
+      }
+      eventEditor.toggleRemoval(event, true)
+    } else {
+      eventEditor.toggleRemoval(event, false)
+    }
+  }
+
+  const handleEditClick = () => {
+    setIsEditDialogOpen(true)
+  }
+
   const content = (
-    <div className={`rounded-2xl border border-borderMuted bg-panelMuted/60 px-4 py-4 ${isPinned ? 'fixed top-0 left-0 right-0 z-[9998] w-screen border-b shadow-2xl' : ''}`}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-xs uppercase tracking-[0.3em] text-gray-500">
-              {collapsed ? 'Current Journey Item' : 'Load Session Files'}
-            </p>
-            {collapsed && marker?.timestamp && (
-              <p className="text-xs uppercase tracking-[0.3em] text-purple-400">
-                {formatTimestamp(marker.timestamp)}
+    <>
+      <div className={`rounded-2xl border border-borderMuted bg-panelMuted/60 px-4 py-4 ${isPinned ? 'fixed top-0 left-0 right-0 z-[9998] w-screen border-b shadow-2xl' : ''}`}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs uppercase tracking-[0.3em] text-gray-500">
+                {collapsed ? 'Current Journey Item' : 'Load Session Files'}
               </p>
-            )}
+              {collapsed && marker?.timestamp && (
+                <p className="text-xs uppercase tracking-[0.3em] text-purple-400">
+                  {formatTimestamp(marker.timestamp)}
+                </p>
+              )}
+            </div>
+            <p className={`${collapsed ? 'text-lg font-semibold text-gray-50' : 'text-sm text-gray-300'}`}>
+              {collapsed ? marker?.label ?? 'Select a timeline item to inspect' : status}
+            </p>
           </div>
-          <p className={`${collapsed ? 'text-lg font-semibold text-gray-50' : 'text-sm text-gray-300'}`}>
-            {collapsed ? marker?.label ?? 'Select a timeline item to inspect' : status}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {collapsed && (
-            <>
-              <button
-                type="button"
-                onClick={onTogglePin}
-                className="flex h-8 w-8 items-center justify-center rounded-lg border border-borderMuted bg-panelMuted text-gray-200 transition hover:bg-panel hover:text-white"
-                aria-label={isPinned ? 'Unpin Current Journey Item' : 'Pin Current Journey Item to top'}
-                title={isPinned ? 'Unpin Current Journey Item' : 'Pin Current Journey Item to top'}
-              >
-                {isPinned ? <PinOff size={16} /> : <Pin size={16} />}
-              </button>
-              <div className="flex overflow-hidden rounded-xl border border-borderMuted bg-panelMuted/70">
+          <div className="flex items-center gap-2">
+            {collapsed && (
+              <>
                 <button
                   type="button"
-                  onClick={onNavigatePrevious}
-                  disabled={disablePrevious}
-                  className="flex h-8 w-9 items-center justify-center text-gray-200 transition hover:bg-panel disabled:cursor-not-allowed disabled:opacity-40"
-                  aria-label="Previous event"
-                  title="Previous event"
+                  onClick={onTogglePin}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-borderMuted bg-panelMuted text-gray-200 transition hover:bg-panel hover:text-white"
+                  aria-label={isPinned ? 'Unpin Current Journey Item' : 'Pin Current Journey Item to top'}
+                  title={isPinned ? 'Unpin Current Journey Item' : 'Pin Current Journey Item to top'}
                 >
-                  <ChevronLeft size={16} />
+                  {isPinned ? <PinOff size={16} /> : <Pin size={16} />}
                 </button>
-                <button
-                  type="button"
-                  onClick={onNavigateNext}
-                  disabled={disableNext}
-                  className="flex h-8 w-9 items-center justify-center text-gray-200 transition hover:bg-panel disabled:cursor-not-allowed disabled:opacity-40"
-                  aria-label="Next event"
-                  title="Next event"
-                >
-                  <ChevronRight size={16} />
-                </button>
-              </div>
-            </>
+                <div className="flex overflow-hidden rounded-xl border border-borderMuted bg-panelMuted/70">
+                  <button
+                    type="button"
+                    onClick={onNavigatePrevious}
+                    disabled={disablePrevious}
+                    className="flex h-8 w-9 items-center justify-center text-gray-200 transition hover:bg-panel disabled:cursor-not-allowed disabled:opacity-40"
+                    aria-label="Previous event"
+                    title="Previous event"
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onNavigateNext}
+                    disabled={disableNext}
+                    className="flex h-8 w-9 items-center justify-center text-gray-200 transition hover:bg-panel disabled:cursor-not-allowed disabled:opacity-40"
+                    aria-label="Next event"
+                    title="Next event"
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+                {eventEditor && event && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleEditClick}
+                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-borderMuted bg-panelMuted text-gray-200 transition hover:bg-panel hover:text-white"
+                      aria-label="Edit event"
+                      title="Edit event"
+                    >
+                      <Edit2 size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleRemoveClick}
+                      className={`flex h-8 w-8 items-center justify-center rounded-lg border transition ${
+                        isRemoved
+                          ? 'border-amber-300/70 text-amber-200 hover:bg-amber-500/10'
+                          : 'border-red-400/60 text-red-200 hover:bg-red-500/10'
+                      }`}
+                      aria-label={isRemoved ? 'Restore event' : 'Remove event'}
+                      title={isRemoved ? 'Restore event' : 'Remove event'}
+                    >
+                      {isRemoved ? <RotateCcw size={16} /> : <Trash2 size={16} />}
+                    </button>
+                  </>
+                )}
+              </>
+            )}
+            {canToggle && (
+            <button
+              type="button"
+              onClick={onToggle}
+              className="flex h-8 w-8 items-center justify-center rounded-full border border-borderMuted bg-panel text-gray-200 transition hover:text-white"
+              aria-label={collapsed ? 'Show file pickers' : 'Show Current Journey Item'}
+              title={collapsed ? 'Show file pickers' : 'Show Current Journey Item'}
+            >
+              {collapsed ? <Settings size={16} /> : <FileText size={16} />}
+            </button>
           )}
-          {canToggle && (
-          <button
-            type="button"
-            onClick={onToggle}
-            className="flex h-8 w-8 items-center justify-center rounded-full border border-borderMuted bg-panel text-gray-200 transition hover:text-white"
-            aria-label={collapsed ? 'Show file pickers' : 'Show Current Journey Item'}
-            title={collapsed ? 'Show file pickers' : 'Show Current Journey Item'}
-          >
-            {collapsed ? <Settings size={16} /> : <FileText size={16} />}
-          </button>
-        )}
+          </div>
         </div>
+        <div className="mt-4">{collapsed ? <JourneyItemDetails marker={marker} /> : children}</div>
       </div>
-      <div className="mt-4">{collapsed ? <JourneyItemDetails marker={marker} /> : children}</div>
-    </div>
+      {isEditDialogOpen && eventEditor && event && (
+        <EventEditDialog
+          event={event}
+          override={editorOverride}
+          originalLabel={originalEvent?.label ?? ''}
+          onChangeLabel={(value) => eventEditor.updateLabel(event, value)}
+          onReset={() => eventEditor.reset(event)}
+          onClose={() => setIsEditDialogOpen(false)}
+        />
+      )}
+    </>
   )
 
   if (isPinned && typeof document !== 'undefined') {
@@ -589,7 +1053,11 @@ const FileInputsSection = ({
   return content
 }
 
-const JourneyItemDetails = ({ marker }: { marker: TimelineMarker | null }) => {
+const JourneyItemDetails = ({
+  marker,
+}: {
+  marker: TimelineMarker | null
+}) => {
   const expandedStateRef = useRef(false)
   const [expanded, setExpanded] = useState(expandedStateRef.current)
 
@@ -664,6 +1132,99 @@ const JourneyItemDetails = ({ marker }: { marker: TimelineMarker | null }) => {
       )}
     </div>
   )
+}
+
+type EventEditDialogProps = {
+  event: TraceEvent
+  override?: EventOverride
+  originalLabel: string
+  onChangeLabel: (value: string) => void
+  onReset: () => void
+  onClose: () => void
+}
+
+const EventEditDialog = ({
+  event,
+  override,
+  originalLabel,
+  onChangeLabel,
+  onReset,
+  onClose,
+}: EventEditDialogProps) => {
+  const value = override?.label ?? event.label ?? event.text ?? ''
+  
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+      }
+    }
+    document.addEventListener('keydown', handleEscape)
+    return () => {
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [onClose])
+
+  const dialogContent = (
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
+      <div
+        className="fixed inset-0 bg-black/50 backdrop-blur-sm"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      <div className="relative z-10 w-full max-w-md rounded-2xl border border-borderMuted bg-panel shadow-2xl">
+        <div className="flex items-center justify-between border-b border-borderMuted px-6 py-4">
+          <h2 className="text-lg font-semibold text-gray-100">Edit Event Metadata</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition hover:bg-panelMuted hover:text-gray-200"
+            aria-label="Close dialog"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <div className="px-6 py-5 space-y-4">
+          <label className="flex flex-col gap-2 text-sm text-gray-200">
+            Label
+            <input
+              type="text"
+              value={value}
+              onChange={(event) => onChangeLabel(event.target.value)}
+              className="rounded-lg border border-borderMuted bg-panelMuted px-3 py-2 text-sm text-gray-100 focus:border-accent focus:outline-none"
+              placeholder="Event label"
+              autoFocus
+            />
+            <span className="text-xs text-gray-500">
+              Original: {originalLabel || '—'}
+            </span>
+          </label>
+          <div className="flex gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onReset}
+              className="flex-1 rounded-lg border border-borderMuted px-4 py-2 text-sm text-gray-300 transition hover:bg-panelMuted"
+            >
+              Reset changes
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 rounded-lg border border-accent bg-accent px-4 py-2 text-sm font-medium text-gray-900 transition hover:bg-accent/90"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+
+  if (typeof document !== 'undefined') {
+    return createPortal(dialogContent, document.body)
+  }
+
+  return dialogContent
 }
 
 const ClickDetails = ({

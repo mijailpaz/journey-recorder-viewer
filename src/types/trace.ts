@@ -25,6 +25,7 @@ export interface TraceNetworkTimings {
 export interface TraceEvent {
   id?: number | string
   kind: TraceKind
+  jrInternalId?: string
   selector?: string
   text?: string
   label?: string
