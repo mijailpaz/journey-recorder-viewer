@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { ArrowRight, ChevronDown, ChevronLeft, ChevronRight, ChevronUp } from 'lucide-react'
+import { ArrowRight, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Pin, PinOff } from 'lucide-react'
 import DiagramPanel from './components/DiagramPanel'
 import FileInputs from './components/FileInputs'
 import FooterBar from './components/FooterBar'
@@ -188,6 +188,7 @@ function App() {
   const [activeMarkerId, setActiveMarkerId] = useState<string | null>(null)
   const [activeMarker, setActiveMarker] = useState<TimelineMarker | null>(null)
   const [fileInputsCollapsed, setFileInputsCollapsed] = useState(false)
+  const [isTimelinePinned, setIsTimelinePinned] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const autoCollapsedRef = useRef(false)
 
@@ -389,6 +390,8 @@ function App() {
           disableNext={disableNext}
           onNavigatePrevious={() => handleNavigate('prev')}
           onNavigateNext={() => handleNavigate('next')}
+          isTimelinePinned={isTimelinePinned}
+          onToggleTimelinePin={() => setIsTimelinePinned(!isTimelinePinned)}
         >
           <FileInputs
             onVideoSelect={handleVideoSelect}
@@ -400,7 +403,7 @@ function App() {
         </FileInputsSection>
       </HeaderBar>
 
-      <main className="flex flex-1 flex-col gap-5 overflow-hidden px-6 py-6">
+      <main className={`flex flex-1 flex-col gap-5 overflow-hidden px-6 py-6 ${isTimelinePinned ? 'pb-[60px]' : ''}`}>
         <div className="grid flex-1 grid-cols-1 gap-5 lg:grid-cols-2">
           <VideoPanel
             ref={videoRef}
@@ -417,6 +420,24 @@ function App() {
             activeTraceColor={activeTraceColor}
           />
         </div>
+        {!isTimelinePinned && (
+          <TimelineSection
+            clicks={timeline.clicks}
+            requests={timeline.requests}
+            timeRangeMs={timeline.timeRangeMs}
+            playbackPercent={playbackPercent}
+            onMarkerClick={handleMarkerSelect}
+            onNavigatePrevious={() => handleNavigate('prev')}
+            onNavigateNext={() => handleNavigate('next')}
+            disablePrevious={disablePrevious}
+            disableNext={disableNext}
+            isPinned={isTimelinePinned}
+            onTogglePin={() => setIsTimelinePinned(!isTimelinePinned)}
+          />
+        )}
+      </main>
+
+      {isTimelinePinned && (
         <TimelineSection
           clicks={timeline.clicks}
           requests={timeline.requests}
@@ -427,8 +448,10 @@ function App() {
           onNavigateNext={() => handleNavigate('next')}
           disablePrevious={disablePrevious}
           disableNext={disableNext}
+          isPinned={isTimelinePinned}
+          onTogglePin={() => setIsTimelinePinned(!isTimelinePinned)}
         />
-      </main>
+      )}
 
       <FooterBar status={status} />
     </div>
@@ -446,6 +469,8 @@ type FileInputsSectionProps = {
   disableNext: boolean
   onNavigatePrevious: () => void
   onNavigateNext: () => void
+  isTimelinePinned: boolean
+  onToggleTimelinePin: () => void
 }
 
 const FileInputsSection = ({
@@ -458,6 +483,8 @@ const FileInputsSection = ({
   disableNext,
   onNavigatePrevious,
   onNavigateNext,
+  isTimelinePinned,
+  onToggleTimelinePin,
   children,
 }: FileInputsSectionProps) => {
   return (
@@ -480,28 +507,39 @@ const FileInputsSection = ({
         </div>
         <div className="flex items-center gap-2">
           {collapsed && (
-            <div className="flex overflow-hidden rounded-xl border border-borderMuted bg-panelMuted/70">
+            <>
               <button
                 type="button"
-                onClick={onNavigatePrevious}
-                disabled={disablePrevious}
-                className="flex h-8 w-9 items-center justify-center text-gray-200 transition hover:bg-panel disabled:cursor-not-allowed disabled:opacity-40"
-                aria-label="Previous event"
-                title="Previous event"
+                onClick={onToggleTimelinePin}
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-borderMuted bg-panelMuted text-gray-200 transition hover:bg-panel hover:text-white"
+                aria-label={isTimelinePinned ? 'Unpin timeline' : 'Pin timeline to bottom'}
+                title={isTimelinePinned ? 'Unpin timeline' : 'Pin timeline to bottom'}
               >
-                <ChevronLeft size={16} />
+                {isTimelinePinned ? <PinOff size={16} /> : <Pin size={16} />}
               </button>
-              <button
-                type="button"
-                onClick={onNavigateNext}
-                disabled={disableNext}
-                className="flex h-8 w-9 items-center justify-center text-gray-200 transition hover:bg-panel disabled:cursor-not-allowed disabled:opacity-40"
-                aria-label="Next event"
-                title="Next event"
-              >
-                <ChevronRight size={16} />
-              </button>
-            </div>
+              <div className="flex overflow-hidden rounded-xl border border-borderMuted bg-panelMuted/70">
+                <button
+                  type="button"
+                  onClick={onNavigatePrevious}
+                  disabled={disablePrevious}
+                  className="flex h-8 w-9 items-center justify-center text-gray-200 transition hover:bg-panel disabled:cursor-not-allowed disabled:opacity-40"
+                  aria-label="Previous event"
+                  title="Previous event"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <button
+                  type="button"
+                  onClick={onNavigateNext}
+                  disabled={disableNext}
+                  className="flex h-8 w-9 items-center justify-center text-gray-200 transition hover:bg-panel disabled:cursor-not-allowed disabled:opacity-40"
+                  aria-label="Next event"
+                  title="Next event"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            </>
           )}
           {canToggle && (
           <button
