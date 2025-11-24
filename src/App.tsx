@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { ArrowRight, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Pin, PinOff } from 'lucide-react'
+import { ArrowRight, ChevronLeft, ChevronRight, FileText, Pin, PinOff, Settings } from 'lucide-react'
 import DiagramPanel from './components/DiagramPanel'
 import FileInputs from './components/FileInputs'
 import FooterBar from './components/FooterBar'
@@ -574,10 +574,10 @@ const FileInputsSection = ({
             type="button"
             onClick={onToggle}
             className="flex h-8 w-8 items-center justify-center rounded-full border border-borderMuted bg-panel text-gray-200 transition hover:text-white"
-            aria-label={collapsed ? 'Expand file pickers' : 'Collapse file pickers'}
-            title={collapsed ? 'Expand file pickers' : 'Collapse file pickers'}
+            aria-label={collapsed ? 'Show file pickers' : 'Show Current Journey Item'}
+            title={collapsed ? 'Show file pickers' : 'Show Current Journey Item'}
           >
-            {collapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+            {collapsed ? <Settings size={16} /> : <FileText size={16} />}
           </button>
         )}
         </div>
