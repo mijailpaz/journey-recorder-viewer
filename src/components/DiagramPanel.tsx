@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type PointerEvent as ReactPointerEvent,
+  type WheelEvent as ReactWheelEvent,
+} from 'react'
 import { createPortal } from 'react-dom'
 import {
   ArrowLeftRight,
@@ -199,6 +207,11 @@ const DiagramPanel = ({
   const [isFullscreenOpen, setIsFullscreenOpen] = useState(false)
   const [copyStatus, setCopyStatus] = useState<CopyStatus>('idle')
   const copyResetTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const dragStateRef = useRef<{ pointerId: number | null; lastX: number; lastY: number }>({
+    pointerId: null,
+    lastX: 0,
+    lastY: 0,
+  })
   const sequenceTraceMap = useMemo(() => buildSequenceTraceMap(diagram), [diagram])
 
   useEffect(() => {
@@ -289,6 +302,53 @@ const DiagramPanel = ({
 
   const hasDiagram = diagram.trim().length > 0
 
+  const handleCanvasPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!hasDiagram || dragStateRef.current.pointerId !== null) {
+      return
+    }
+    event.preventDefault()
+    dragStateRef.current.pointerId = event.pointerId
+    dragStateRef.current.lastX = event.clientX
+    dragStateRef.current.lastY = event.clientY
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  const handleCanvasPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!hasDiagram || dragStateRef.current.pointerId !== event.pointerId) {
+      return
+    }
+    event.preventDefault()
+    const deltaX = event.clientX - dragStateRef.current.lastX
+    const deltaY = event.clientY - dragStateRef.current.lastY
+    dragStateRef.current.lastX = event.clientX
+    dragStateRef.current.lastY = event.clientY
+    setTransform((prev) => ({ ...prev, x: prev.x + deltaX, y: prev.y + deltaY }))
+  }
+
+  const handleCanvasPointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (dragStateRef.current.pointerId !== event.pointerId) {
+      return
+    }
+    dragStateRef.current.pointerId = null
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+  }
+
+  const handleCanvasWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+    if (!hasDiagram) {
+      return
+    }
+    const hasModifier = event.ctrlKey || event.metaKey
+    if (!hasModifier) {
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    const zoomDelta = event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP
+    handleZoom(zoomDelta)
+  }
+
   const scheduleCopyReset = () => {
     if (copyResetTimeout.current) {
       clearTimeout(copyResetTimeout.current)
@@ -346,49 +406,55 @@ const DiagramPanel = ({
   return (
     <>
       <section className="panel flex h-full flex-col gap-3 p-4">
-      <div className="flex items-center justify-between text-sm text-gray-400">
-        <span className="font-medium text-gray-100">Sequence Diagram</span>
-        {fileName && <span className="text-xs text-gray-500">{fileName}</span>}
-      </div>
-      <div className="relative flex-1 overflow-auto rounded-lg border border-borderMuted bg-panelMuted px-4 py-4">
-        {renderError && !diagram.trim() && (
-          <p className="text-sm text-red-400">Mermaid error: {renderError}</p>
-        )}
-        {hasDiagram ? (
-          <>
-            <div
-              ref={containerRef}
-              className="mermaid text-gray-100 [&>svg]:mx-auto [&>svg]:block [&>svg]:max-w-none"
-            />
-            {!renderError && (
-              <DiagramControls
-                onPanLeft={() => handlePan(PAN_STEP, 0)}
-                onPanRight={() => handlePan(-PAN_STEP, 0)}
-                onPanUp={() => handlePan(0, PAN_STEP)}
-                onPanDown={() => handlePan(0, -PAN_STEP)}
-                onZoomIn={() => handleZoom(ZOOM_STEP)}
-                onZoomOut={() => handleZoom(-ZOOM_STEP)}
-                onReset={handleReset}
+        <div className="flex items-center justify-between text-sm text-gray-400">
+          <span className="font-medium text-gray-100">Sequence Diagram</span>
+          {fileName && <span className="text-xs text-gray-500">{fileName}</span>}
+        </div>
+        <div className="relative flex-1 overflow-hidden rounded-lg border border-borderMuted bg-panelMuted px-4 py-4">
+          {renderError && !diagram.trim() && (
+            <p className="text-sm text-red-400">Mermaid error: {renderError}</p>
+          )}
+          {hasDiagram ? (
+            <>
+              <div
+                ref={containerRef}
+                className="mermaid h-full w-full cursor-grab select-none overflow-hidden text-gray-100 active:cursor-grabbing [&>svg]:mx-auto [&>svg]:block [&>svg]:max-w-none"
+                onPointerDown={handleCanvasPointerDown}
+                onPointerMove={handleCanvasPointerMove}
+                onPointerUp={handleCanvasPointerUp}
+                onPointerLeave={handleCanvasPointerUp}
+                onPointerCancel={handleCanvasPointerUp}
+                onWheel={handleCanvasWheel}
               />
-            )}
-            <DiagramActions
-              copyStatus={copyStatus}
-              onOpenFullscreen={handleOpenFullscreen}
-              onCopyDiagram={handleCopyDiagram}
-              onDownloadDiagram={hasDiagram ? handleDownloadDiagram : undefined}
-            />
-          </>
-        ) : (
-          <div className="flex h-full items-center justify-center text-sm text-gray-500">
-            Load a .mmd Mermaid file to render the flow
-          </div>
-        )}
-        {renderError && diagram.trim() && (
-          <p className="mt-3 rounded border border-red-500/40 bg-red-500/10 p-2 text-xs text-red-200">
-            Mermaid error: {renderError}
-          </p>
-        )}
-      </div>
+              {!renderError && (
+                <DiagramControls
+                  onPanLeft={() => handlePan(PAN_STEP, 0)}
+                  onPanRight={() => handlePan(-PAN_STEP, 0)}
+                  onPanUp={() => handlePan(0, PAN_STEP)}
+                  onPanDown={() => handlePan(0, -PAN_STEP)}
+                  onZoomIn={() => handleZoom(ZOOM_STEP)}
+                  onZoomOut={() => handleZoom(-ZOOM_STEP)}
+                  onReset={handleReset}
+                />
+              )}
+              <DiagramActions
+                copyStatus={copyStatus}
+                onOpenFullscreen={handleOpenFullscreen}
+                onCopyDiagram={handleCopyDiagram}
+                onDownloadDiagram={hasDiagram ? handleDownloadDiagram : undefined}
+              />
+            </>
+          ) : (
+            <div className="flex h-full items-center justify-center text-sm text-gray-500">
+              Load a .mmd Mermaid file to render the flow
+            </div>
+          )}
+          {renderError && diagram.trim() && (
+            <p className="mt-3 rounded border border-red-500/40 bg-red-500/10 p-2 text-xs text-red-200">
+              Mermaid error: {renderError}
+            </p>
+          )}
+        </div>
       </section>
       {isFullscreenOpen && (
         <FullscreenDiagramDialog
@@ -550,8 +616,63 @@ const FullscreenDiagramDialog = ({
   const [dialogError, setDialogError] = useState<string | null>(null)
   const [transform, setTransform] = useState<ViewTransform>(() => createDefaultTransform())
   const transformRef = useRef<ViewTransform>(createDefaultTransform())
+  const dragStateRef = useRef<{ pointerId: number | null; lastX: number; lastY: number }>({
+    pointerId: null,
+    lastX: 0,
+    lastY: 0,
+  })
   const sequenceTraceMap = useMemo(() => buildSequenceTraceMap(diagram), [diagram])
   const hasDiagram = diagram.trim().length > 0
+
+  const handleCanvasPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!hasDiagram || dragStateRef.current.pointerId !== null) {
+      return
+    }
+    event.preventDefault()
+    dragStateRef.current.pointerId = event.pointerId
+    dragStateRef.current.lastX = event.clientX
+    dragStateRef.current.lastY = event.clientY
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  const handleCanvasPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!hasDiagram || dragStateRef.current.pointerId !== event.pointerId) {
+      return
+    }
+    event.preventDefault()
+    const deltaX = event.clientX - dragStateRef.current.lastX
+    const deltaY = event.clientY - dragStateRef.current.lastY
+    dragStateRef.current.lastX = event.clientX
+    dragStateRef.current.lastY = event.clientY
+    setTransform((prev) => ({ ...prev, x: prev.x + deltaX, y: prev.y + deltaY }))
+  }
+
+  const handleCanvasPointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (dragStateRef.current.pointerId !== event.pointerId) {
+      return
+    }
+    dragStateRef.current.pointerId = null
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+  }
+
+  const handleCanvasWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+    if (!hasDiagram) {
+      return
+    }
+    const hasModifier = event.ctrlKey || event.metaKey
+    if (!hasModifier) {
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    const zoomDelta = event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP
+    setTransform((prev) => ({
+      ...prev,
+      zoom: clamp(prev.zoom + zoomDelta, MIN_ZOOM, MAX_ZOOM),
+    }))
+  }
 
   useEffect(() => {
     setTransform(createDefaultTransform())
@@ -670,12 +791,18 @@ const FullscreenDiagramDialog = ({
           <div className="flex items-center justify-between text-sm font-medium text-gray-100">
             <span>Sequence Diagram Preview</span>
           </div>
-          <div className="relative flex-1 overflow-auto rounded-2xl border border-borderMuted bg-panelMuted p-5">
+          <div className="relative flex-1 overflow-hidden rounded-2xl border border-borderMuted bg-panelMuted p-5">
             {hasDiagram ? (
               <>
                 <div
                   ref={canvasRef}
-                  className="mermaid text-gray-100 [&>svg]:h-auto [&>svg]:w-full [&>svg]:max-w-none"
+                  className="mermaid h-full w-full cursor-grab select-none overflow-hidden text-gray-100 active:cursor-grabbing [&>svg]:h-auto [&>svg]:w-full [&>svg]:max-w-none"
+                  onPointerDown={handleCanvasPointerDown}
+                  onPointerMove={handleCanvasPointerMove}
+                  onPointerUp={handleCanvasPointerUp}
+                  onPointerLeave={handleCanvasPointerUp}
+                  onPointerCancel={handleCanvasPointerUp}
+                  onWheel={handleCanvasWheel}
                 />
                 {!dialogError && (
                   <DiagramControls

@@ -19,6 +19,7 @@ Video playback stays synchronized with event markers on an interactive timeline 
 - **Click-to-Seek** - Click any timeline marker to jump the video to that moment
 - **Sequence Diagram** - View Mermaid sequence diagrams rendered with dark theme
 - **Auto-Generated Diagrams** - Build Mermaid sequence diagrams directly from the trace JSON—always in sync with the timeline data
+- **Mouse Navigation** - Drag to pan and hold Ctrl (or ⌘ on macOS) while scrolling to zoom in/out in both the panel and fullscreen preview
 - **Mermaid Export** - Download the generated `.mmd` file to share or tweak the diagram elsewhere
 - **Event Editing** - Update click/request labels or remove noisy events right from the Current Journey Item panel
 - **Trace Filtering** - Apply the Chrome extension’s preset/custom regex filters and preview the JSON output before exporting
@@ -127,6 +128,12 @@ Files can be loaded in any order. The status bar at the bottom shows the current
 - Open the sequence diagram panel and use the download button in the top-right controls to save the current diagram as a `.mmd` file.
 - Use the copy button to send the Mermaid source to your clipboard if you want to paste it elsewhere.
 - The fullscreen button expands the diagram for easier inspection before exporting.
+
+### Navigating the Sequence Diagram
+
+- Drag anywhere on the diagram to pan the view. This works in both the in-panel view and the fullscreen preview.
+- Hold Ctrl on Windows/Linux or ⌘ on macOS while using the scroll wheel (or two-finger trackpad scroll) to zoom in or out without touching the on-screen controls.
+- Hit the reset control at any time to recenter the canvas if you lose track of the original framing.
 
 ### Interacting with the Timeline
 
