@@ -36,6 +36,7 @@ type DiagramPanelProps = {
   errorMessage?: string | null
   activeTraceId?: string | number | null
   activeTraceColor?: string | null
+  isAutoZoomEnabled?: boolean
 }
 
 type CopyStatus = 'idle' | 'copied' | 'error'
@@ -193,12 +194,96 @@ const escapeCssValue = (value: string) => {
   return value.replace(/["\\]/g, '\\$&')
 }
 
+const AUTO_CENTER_WIDTH_PERCENT = 0.5
+const AUTO_CENTER_MAX_ZOOM = 10
+
+// Force browser reflow by reading a layout property
+const forceReflow = (element: Element) => {
+  void element.getBoundingClientRect()
+}
+
+/**
+ * Centers the SVG view on all highlighted elements and zooms to fit them
+ * at approximately 80% of the container width.
+ */
+const centerOnHighlightedElements = (
+  svg: SVGSVGElement | null,
+  container: HTMLElement | null,
+  setTransform: React.Dispatch<React.SetStateAction<ViewTransform>>,
+) => {
+  if (!svg || !container) {
+    return
+  }
+
+  const elements = svg.querySelectorAll('[data-trace-selected="true"]')
+  if (elements.length === 0) {
+    return
+  }
+
+  // Helper to get combined bounds of all highlighted elements
+  const getBounds = () => {
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    elements.forEach((el) => {
+      const rect = el.getBoundingClientRect()
+      minX = Math.min(minX, rect.left)
+      minY = Math.min(minY, rect.top)
+      maxX = Math.max(maxX, rect.right)
+      maxY = Math.max(maxY, rect.bottom)
+    })
+    return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY }
+  }
+
+  // Hide SVG during measurement to prevent flash
+  svg.style.visibility = 'hidden'
+  svg.style.transition = 'none'
+  svg.style.transform = 'translate(0px, 0px) scale(1)'
+  forceReflow(svg)
+
+  const containerRect = container.getBoundingClientRect()
+  const bounds = getBounds()
+
+  // Calculate zoom to fit elements at target percentage of container
+  const targetWidth = containerRect.width * AUTO_CENTER_WIDTH_PERCENT
+  const targetHeight = containerRect.height * AUTO_CENTER_WIDTH_PERCENT
+  const zoomForWidth = targetWidth / bounds.width
+  const zoomForHeight = targetHeight / bounds.height
+  const autoZoom = Math.min(zoomForWidth, zoomForHeight)
+  const targetZoom = Math.min(AUTO_CENTER_MAX_ZOOM, Math.max(MIN_ZOOM, autoZoom))
+
+  // Apply zoom and re-measure for centering
+  svg.style.transform = `translate(0px, 0px) scale(${targetZoom})`
+  forceReflow(svg)
+
+  const newBounds = getBounds()
+  const newContainerRect = container.getBoundingClientRect()
+
+  const offsetX =
+    newContainerRect.left + newContainerRect.width / 2 - (newBounds.minX + newBounds.width / 2)
+  const offsetY =
+    newContainerRect.top + newContainerRect.height / 2 - (newBounds.minY + newBounds.height / 2)
+
+  // Apply final transform
+  svg.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${targetZoom})`
+  forceReflow(svg)
+
+  // Show SVG
+  svg.style.visibility = 'visible'
+  svg.style.transition = 'transform 150ms ease-out'
+
+  // Update React state to keep it in sync
+  setTransform({ zoom: targetZoom, x: offsetX, y: offsetY })
+}
+
 const DiagramPanel = ({
   diagram,
   fileName,
   errorMessage,
   activeTraceId,
   activeTraceColor,
+  isAutoZoomEnabled = false,
 }: DiagramPanelProps) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const [renderError, setRenderError] = useState<string | null>(null)
@@ -284,6 +369,23 @@ const DiagramPanel = ({
     attachTraceMetadata(svg, sequenceTraceMap)
     highlightTraceSelection(svg, activeTraceId, activeTraceColor)
   }, [sequenceTraceMap, activeTraceId, activeTraceColor])
+
+  // Auto-center on highlighted elements when activeTraceId changes (only if enabled)
+  useEffect(() => {
+    if (!isAutoZoomEnabled || activeTraceId == null) {
+      return
+    }
+    const svg = containerRef.current?.querySelector('svg')
+    const container = containerRef.current
+    if (!svg || !container) {
+      return
+    }
+    // Small delay to ensure highlighting is applied first
+    const timeoutId = setTimeout(() => {
+      centerOnHighlightedElements(svg, container, setTransform)
+    }, 50)
+    return () => clearTimeout(timeoutId)
+  }, [activeTraceId, isAutoZoomEnabled])
 
   const handlePan = (xDelta: number, yDelta: number) => {
     setTransform((prev) => ({ ...prev, x: prev.x + xDelta, y: prev.y + yDelta }))
@@ -462,6 +564,7 @@ const DiagramPanel = ({
           onClose={() => setIsFullscreenOpen(false)}
           activeTraceId={activeTraceId}
           activeTraceColor={activeTraceColor}
+          isAutoZoomEnabled={isAutoZoomEnabled}
         />
       )}
     </>
@@ -604,6 +707,7 @@ type FullscreenDiagramDialogProps = {
   onClose: () => void
   activeTraceId?: string | number | null
   activeTraceColor?: string | null
+  isAutoZoomEnabled?: boolean
 }
 
 const FullscreenDiagramDialog = ({
@@ -611,6 +715,7 @@ const FullscreenDiagramDialog = ({
   onClose,
   activeTraceId,
   activeTraceColor,
+  isAutoZoomEnabled = false,
 }: FullscreenDiagramDialogProps) => {
   const canvasRef = useRef<HTMLDivElement>(null)
   const [dialogError, setDialogError] = useState<string | null>(null)
@@ -748,6 +853,23 @@ const FullscreenDiagramDialog = ({
     attachTraceMetadata(svg, sequenceTraceMap)
     highlightTraceSelection(svg, activeTraceId, activeTraceColor)
   }, [sequenceTraceMap, activeTraceId, activeTraceColor])
+
+  // Auto-center on highlighted elements when activeTraceId changes (only if enabled)
+  useEffect(() => {
+    if (!isAutoZoomEnabled || activeTraceId == null) {
+      return
+    }
+    const svg = canvasRef.current?.querySelector('svg')
+    const container = canvasRef.current
+    if (!svg || !container) {
+      return
+    }
+    // Small delay to ensure highlighting is applied first
+    const timeoutId = setTimeout(() => {
+      centerOnHighlightedElements(svg, container, setTransform)
+    }, 50)
+    return () => clearTimeout(timeoutId)
+  }, [activeTraceId, isAutoZoomEnabled])
 
   if (typeof document === 'undefined') {
     return null
