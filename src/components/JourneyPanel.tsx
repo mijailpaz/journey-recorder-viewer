@@ -9,15 +9,20 @@ import {
 import { createPortal } from 'react-dom'
 import {
   ArrowRight,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Edit2,
   Eye,
   Focus,
+  Globe,
+  Mouse,
   Pin,
   PinOff,
   RotateCcw,
   Trash2,
+  User,
   X,
 } from 'lucide-react'
 import type { TraceCapturedBody, TraceEvent, TraceNetworkTimings } from '../types/trace'
@@ -67,6 +72,8 @@ export type JourneyPanelProps = {
   onToggleAutoZoom?: () => void
   eventEditor?: JourneyEventEditorProps
   onPinnedHeightChange?: (height: number) => void
+  allMarkers?: TimelineMarker[]
+  activeMarkerIndex?: number
 }
 
 const clampPercent = (value: number) => Math.min(100, Math.max(0, value))
@@ -178,6 +185,74 @@ const DetailChip = ({
   </span>
 )
 
+// Event Number Badge Component
+const EventNumberBadge = ({
+  number,
+  size = 'md',
+}: {
+  number: number
+  size?: 'sm' | 'md'
+}) => {
+  const sizeClasses = size === 'sm' 
+    ? 'h-4 w-4 text-[9px]' 
+    : 'h-5 w-5 text-[10px]'
+  const colorClasses = size === 'sm'
+    ? 'border-gray-600 text-gray-500'
+    : 'border-gray-500 text-gray-400'
+  
+  return (
+    <span
+      className={`flex items-center justify-center rounded-full border font-medium ${sizeClasses} ${colorClasses}`}
+      title="Event trace number"
+    >
+      {number}
+    </span>
+  )
+}
+
+// Flow Badge Component for showing origin → message → destination
+const FlowBadge = ({
+  origin,
+  message,
+  destination,
+  isClick = false,
+  eventNumber,
+}: {
+  origin?: string | null
+  message: string
+  destination?: string | null
+  isClick?: boolean
+  eventNumber?: number
+}) => (
+  <div className="flex items-center gap-2.5 flex-wrap mt-2">
+    {typeof eventNumber === 'number' && (
+      <EventNumberBadge number={eventNumber} />
+    )}
+    {origin && (
+      <>
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-borderMuted bg-panel px-3 py-1 text-xs font-medium text-gray-100">
+          {isClick ? <User size={14} /> : <Globe size={14} />}
+          {origin}
+        </span>
+        <ArrowRight size={16} className="text-gray-500" />
+      </>
+    )}
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1 text-xs font-medium text-blue-300">
+      {isClick && <Mouse size={14} />}
+      {message}
+    </span>
+    {destination && (
+      <>
+        <ArrowRight size={16} className="text-gray-500" />
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-borderMuted bg-panel px-3 py-1 text-xs font-medium text-gray-100">
+          <Globe size={14} />
+          {destination}
+        </span>
+      </>
+    )}
+  </div>
+)
+
 const JourneyPanel = memo(({
   marker,
   clicks,
@@ -195,6 +270,8 @@ const JourneyPanel = memo(({
   onToggleAutoZoom,
   eventEditor,
   onPinnedHeightChange,
+  allMarkers,
+  activeMarkerIndex,
 }: JourneyPanelProps) => {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false)
@@ -464,6 +541,9 @@ const JourneyPanel = memo(({
         <EventDetailsDialog
           marker={marker}
           onClose={() => setIsDetailsDialogOpen(false)}
+          allMarkers={allMarkers}
+          activeMarkerIndex={activeMarkerIndex}
+          onNavigateToMarker={onMarkerClick}
         />
       )}
     </>
@@ -584,10 +664,55 @@ const EventEditDialog = ({
 type EventDetailsDialogProps = {
   marker: TimelineMarker
   onClose: () => void
+  allMarkers?: TimelineMarker[]
+  activeMarkerIndex?: number
+  onNavigateToMarker?: (marker: TimelineMarker) => void
 }
 
-const EventDetailsDialog = ({ marker, onClose }: EventDetailsDialogProps) => {
+// Helper to compute flow data for any marker
+// Uses marker.from and marker.to which are pre-computed in App.tsx with correct host tracking
+const getFlowDataForMarker = (targetMarker: TimelineMarker) => {
+  const event = targetMarker.event
+  if (!event) return null
+
+  const isClick = event.kind === 'click'
+  const message = isClick
+    ? (event.label || event.text || event.selector || 'element')
+    : (event.path || targetMarker.label)
+
+  return {
+    origin: targetMarker.from || null,
+    message,
+    destination: targetMarker.to || null,
+    isClick,
+  }
+}
+
+const EventDetailsDialog = ({
+  marker,
+  onClose,
+  allMarkers,
+  activeMarkerIndex,
+  onNavigateToMarker,
+}: EventDetailsDialogProps) => {
   const event = marker.event
+
+  // Compute flow data for current, previous, and next markers
+  const flowData = getFlowDataForMarker(marker)
+
+  const previousMarker =
+    allMarkers && typeof activeMarkerIndex === 'number' && activeMarkerIndex > 0
+      ? allMarkers[activeMarkerIndex - 1]
+      : null
+  const nextMarker =
+    allMarkers &&
+    typeof activeMarkerIndex === 'number' &&
+    activeMarkerIndex < allMarkers.length - 1
+      ? allMarkers[activeMarkerIndex + 1]
+      : null
+
+  const previousFlowData = previousMarker ? getFlowDataForMarker(previousMarker) : null
+  const nextFlowData = nextMarker ? getFlowDataForMarker(nextMarker) : null
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -610,14 +735,96 @@ const EventDetailsDialog = ({ marker, onClose }: EventDetailsDialogProps) => {
       />
       <div className="relative z-10 w-full max-w-8xl max-h-[90vh] overflow-hidden rounded-2xl border border-borderMuted bg-panel shadow-2xl flex flex-col">
         <div className="flex items-center justify-between border-b border-borderMuted px-6 py-4 flex-shrink-0">
-          <div>
+          <div className="flex-1 min-w-0">
             <h2 className="text-lg font-semibold text-gray-100">Event Details</h2>
-            <p className="text-sm text-gray-400 mt-0.5">{marker.label}</p>
+
+            {/* Previous Event Navigation */}
+            {previousMarker && previousFlowData && onNavigateToMarker && typeof activeMarkerIndex === 'number' && (
+              <button
+                type="button"
+                onClick={() => onNavigateToMarker(previousMarker)}
+                className="group flex items-center gap-2 mt-2 opacity-50 hover:opacity-100 transition-opacity cursor-pointer"
+              >
+                <ChevronUp size={14} className="text-gray-500 group-hover:text-gray-300" />
+                <EventNumberBadge number={activeMarkerIndex} size="sm" />
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {previousFlowData.origin && (
+                    <>
+                      <span className="inline-flex items-center gap-1 rounded-full border border-borderMuted bg-panel/50 px-2 py-0.5 text-[10px] font-medium text-gray-400">
+                        {previousFlowData.isClick ? <User size={10} /> : <Globe size={10} />}
+                        {previousFlowData.origin}
+                      </span>
+                      <ArrowRight size={12} className="text-gray-600" />
+                    </>
+                  )}
+                  <span className="text-[10px] text-gray-500 font-mono truncate max-w-[200px]">
+                    {previousFlowData.message}
+                  </span>
+                  {previousFlowData.destination && (
+                    <>
+                      <ArrowRight size={12} className="text-gray-600" />
+                      <span className="inline-flex items-center gap-1 rounded-full border border-borderMuted bg-panel/50 px-2 py-0.5 text-[10px] font-medium text-gray-400">
+                        <Globe size={10} />
+                        {previousFlowData.destination}
+                      </span>
+                    </>
+                  )}
+                </div>
+              </button>
+            )}
+
+            {/* Current Event */}
+            {flowData ? (
+              <FlowBadge
+                origin={flowData.origin}
+                message={flowData.message}
+                destination={flowData.destination}
+                isClick={flowData.isClick}
+                eventNumber={typeof activeMarkerIndex === 'number' ? activeMarkerIndex + 1 : undefined}
+              />
+            ) : (
+              <p className="text-sm text-gray-400 mt-0.5">{marker.label}</p>
+            )}
+
+            {/* Next Event Navigation */}
+            {nextMarker && nextFlowData && onNavigateToMarker && typeof activeMarkerIndex === 'number' && (
+              <button
+                type="button"
+                onClick={() => onNavigateToMarker(nextMarker)}
+                className="group flex items-center gap-2 mt-2 opacity-50 hover:opacity-100 transition-opacity cursor-pointer"
+              >
+                <ChevronDown size={14} className="text-gray-500 group-hover:text-gray-300" />
+                <EventNumberBadge number={activeMarkerIndex + 2} size="sm" />
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {nextFlowData.origin && (
+                    <>
+                      <span className="inline-flex items-center gap-1 rounded-full border border-borderMuted bg-panel/50 px-2 py-0.5 text-[10px] font-medium text-gray-400">
+                        {nextFlowData.isClick ? <User size={10} /> : <Globe size={10} />}
+                        {nextFlowData.origin}
+                      </span>
+                      <ArrowRight size={12} className="text-gray-600" />
+                    </>
+                  )}
+                  <span className="text-[10px] text-gray-500 font-mono truncate max-w-[200px]">
+                    {nextFlowData.message}
+                  </span>
+                  {nextFlowData.destination && (
+                    <>
+                      <ArrowRight size={12} className="text-gray-600" />
+                      <span className="inline-flex items-center gap-1 rounded-full border border-borderMuted bg-panel/50 px-2 py-0.5 text-[10px] font-medium text-gray-400">
+                        <Globe size={10} />
+                        {nextFlowData.destination}
+                      </span>
+                    </>
+                  )}
+                </div>
+              </button>
+            )}
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition hover:bg-panelMuted hover:text-gray-200"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition hover:bg-panelMuted hover:text-gray-200 flex-shrink-0 self-start"
             aria-label="Close dialog"
           >
             <X size={18} />

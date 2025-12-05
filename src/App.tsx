@@ -831,6 +831,8 @@ function App() {
         getOriginalEvent: getOriginalEventFor,
       }}
       onPinnedHeightChange={setPinnedJourneyHeight}
+      allMarkers={combinedMarkers}
+      activeMarkerIndex={activeMarkerIndex}
     />
   )
 
