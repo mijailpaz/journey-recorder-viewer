@@ -138,10 +138,22 @@ const formatRequestForMermaid = (event: TraceEvent): RequestLine | null => {
   }
 }
 
+const extractSiteHost = (events?: TraceEvent[] | null): string => {
+  if (!events || events.length === 0) {
+    return 'WebApp'
+  }
+  const firstClickWithHost = events.find((e) => e.kind === 'click' && e.host)
+  if (!firstClickWithHost?.host) {
+    return 'WebApp'
+  }
+  return normalizeHost(firstClickWithHost.host)
+}
+
 export const generateMermaidFromTrace = (events?: TraceEvent[] | null): string => {
+  const siteHost = extractSiteHost(events)
   const lines = ['sequenceDiagram', '  autonumber']
   if (!events || events.length === 0) {
-    lines.push('  Note over User,WebApp: No events recorded')
+    lines.push(`  Note over User,${siteHost}: No events recorded`)
     return lines.join('\n')
   }
 
@@ -154,7 +166,7 @@ export const generateMermaidFromTrace = (events?: TraceEvent[] | null): string =
       if (event.id !== undefined) {
         lines.push(`  %%${event.id}`)
       }
-      lines.push(`  User->>WebApp: Click "${sanitize(label)}"`)
+      lines.push(`  User->>${siteHost}: Click "${sanitize(label)}"`)
       hasOutput = true
       hasActiveClick = true
       return
@@ -171,18 +183,18 @@ export const generateMermaidFromTrace = (events?: TraceEvent[] | null): string =
       if (event.id !== undefined) {
         lines.push(`  %%${event.id}`)
       }
-      lines.push(`  WebApp->>${requestLine.host}: ${requestLine.description}`)
+      lines.push(`  ${siteHost}->>${requestLine.host}: ${requestLine.description}`)
       if (!requestLine.skipResponse) {
         const status = event.status ?? 'unknown'
         const statusText = (event.statusText || '').trim()
-        lines.push(`  ${requestLine.host}-->>WebApp: ${status}${statusText ? ` ${statusText}` : ''}`)
+        lines.push(`  ${requestLine.host}-->>${siteHost}: ${status}${statusText ? ` ${statusText}` : ''}`)
       }
       hasOutput = true
     }
   })
 
   if (!hasOutput) {
-    lines.push('  Note over User,WebApp: No click-driven events recorded')
+    lines.push(`  Note over User,${siteHost}: No click-driven events recorded`)
   }
 
   return lines.join('\n')

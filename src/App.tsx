@@ -87,12 +87,13 @@ const buildDetails = (event: TraceEvent) => {
   return details.filter(Boolean).join('\n')
 }
 
-const deriveParticipants = (event: TraceEvent) => {
+const deriveParticipants = (event: TraceEvent, siteHost: string) => {
   if (event.kind === 'click') {
-    return { from: 'User', to: 'WebApp' }
+    const clickHost = event.host ? normalizeHost(event.host) : siteHost
+    return { from: 'User', to: clickHost }
   }
   if (event.kind === 'request') {
-    return { from: 'WebApp', to: extractEndpointName(event) }
+    return { from: siteHost, to: extractEndpointName(event) }
   }
   return { from: 'System', to: 'System' }
 }
@@ -163,6 +164,16 @@ type TimelineComputation = {
   endTs: number | null
 }
 
+const normalizeHost = (host: string) => host.replace(/^www\./i, '')
+
+const extractSiteHost = (events: TraceEvent[]): string => {
+  const firstClickWithHost = events.find((e) => e.kind === 'click' && e.host)
+  if (!firstClickWithHost?.host) {
+    return 'WebApp'
+  }
+  return normalizeHost(firstClickWithHost.host)
+}
+
 const computeTimeline = (
   trace: TraceFile | null,
   videoAnchorMs: number | null,
@@ -215,12 +226,14 @@ const computeTimeline = (
     }
   }
 
+  const siteHost = extractSiteHost(events)
+
   const toMarker = (event: TraceEvent, index: number): TimelineMarker => {
     const ts = typeof event.ts === 'number' ? event.ts : startTs
     const position = clampPercent(((ts - startTs) / range) * 100)
     const label = event.label ?? event.text ?? event.path ?? event.method ?? event.kind
     const color = event.kind === 'click' ? '#f5d742' : '#4aa3ff'
-    const participants = deriveParticipants(event)
+    const participants = deriveParticipants(event, siteHost)
     const eventKey = getEventInternalId(event, getEventKey(event, index))
     const markerId = getEventInternalId(event, `${event.kind}-${event.id ?? index}`)
     return {

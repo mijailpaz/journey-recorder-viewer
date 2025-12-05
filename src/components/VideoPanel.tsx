@@ -18,7 +18,7 @@ const VideoPanel = forwardRef<HTMLVideoElement, VideoPanelProps>(
     }
 
     return (
-      <section className="panel flex h-full flex-col gap-3 p-4">
+      <section className="panel flex h-full max-h-[70vh] flex-col gap-3 p-4">
         <div className="flex items-center justify-between text-sm text-gray-400">
           <span className="font-medium text-gray-100">Session Video</span>
           {fileName && <span className="text-xs text-gray-500">{fileName}</span>}
