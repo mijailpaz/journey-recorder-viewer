@@ -371,9 +371,14 @@ const JourneyPanel = memo(({
                 <p className="text-xs text-gray-500">{summary} window</p>
               )}
             </div>
-            <p className="text-base font-semibold text-gray-50 truncate">
-              {marker?.label ?? 'Select a timeline item to inspect'}
-            </p>
+            <div className="flex items-center gap-2">
+              {marker && typeof activeMarkerIndex === 'number' && (
+                <EventNumberBadge number={activeMarkerIndex + 1} />
+              )}
+              <p className="text-base font-semibold text-gray-50 truncate">
+                {marker?.label ?? 'Select a timeline item to inspect'}
+              </p>
+            </div>
           </div>
           
           {/* Controls */}
