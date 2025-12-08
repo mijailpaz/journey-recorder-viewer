@@ -14,7 +14,7 @@ import DiagramPanel from './components/DiagramPanel'
 import FileInputs from './components/FileInputs'
 import FooterBar from './components/FooterBar'
 import HeaderBar from './components/HeaderBar'
-import JourneyPanel, { type TimelineMarker } from './components/JourneyPanel'
+import JourneyPanel, { type TimelineMarker, type FilterGroupOption } from './components/JourneyPanel'
 import TraceSettingsPanel from './components/TraceSettingsPanel'
 import VideoPanel from './components/VideoPanel'
 import type { TraceEvent, TraceFile } from './types/trace'
@@ -22,6 +22,7 @@ import generateMermaidFromTrace from './utils/mermaid'
 import {
   applyTraceFilters,
   createDefaultFilterSettings,
+  FILTER_GROUP_TEMPLATES,
   type TraceFilterSettings,
 } from './utils/traceFilters'
 
@@ -272,8 +273,17 @@ function App() {
   const [filterSettings, setFilterSettings] = useState<TraceFilterSettings>(createDefaultFilterSettings())
   const [pinnedJourneyHeight, setPinnedJourneyHeight] = useState(0)
   const [showLoadSessionPanel, setShowLoadSessionPanel] = useState(true)
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' } | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const autoHideLoadPanelRef = useRef(false)
+
+  // Auto-dismiss toast after 4 seconds
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 4000)
+      return () => clearTimeout(timer)
+    }
+  }, [toast])
 
   const manualEvents = useMemo(
     () => applyEventOverridesToEvents(loadedTraceFile?.events ?? [], eventOverrides),
@@ -439,6 +449,21 @@ function App() {
   const hasTraceModifications = Boolean(
     filteredTrace && (hasEventOverrides || hasFilterChanges),
   )
+
+  const filterGroupOptions: FilterGroupOption[] = useMemo(() => {
+    const groupOptions = FILTER_GROUP_TEMPLATES.map((template) => ({
+      id: template.id,
+      label: template.label,
+      description: template.description,
+    }))
+    // Add custom regex as an option
+    groupOptions.push({
+      id: 'custom',
+      label: 'Custom regex filters',
+      description: 'Your own custom filters. One regex pattern per line.',
+    })
+    return groupOptions
+  }, [])
 
   const originalEventMap = useMemo(() => {
     const map = new Map<string, TraceEvent>()
@@ -667,6 +692,55 @@ function App() {
     setFilterSettings(createDefaultFilterSettings())
   }, [])
 
+  const handleAddFilter = useCallback((pattern: string, groupId: string): number => {
+    // Count how many request events match this pattern in the current filtered trace
+    let matchCount = 0
+    try {
+      const regex = new RegExp(pattern, 'i')
+      matchCount = (filteredTrace?.events ?? []).filter(
+        (event) => event.kind === 'request' && regex.test(event.url || event.host || event.path || '')
+      ).length
+    } catch {
+      // Invalid regex - count will be 0
+    }
+
+    setFilterSettings((prev) => {
+      // If adding to custom filters
+      if (groupId === 'custom') {
+        const currentText = prev.customRegexText.trim()
+        const newText = currentText ? `${currentText}\n${pattern}` : pattern
+        return { ...prev, customRegexText: newText }
+      }
+      // Otherwise add to a specific group
+      return {
+        ...prev,
+        groups: prev.groups.map((group) => {
+          if (group.id === groupId) {
+            const currentText = group.patternsText.trim()
+            const newText = currentText ? `${currentText}\n${pattern}` : pattern
+            return { ...group, patternsText: newText }
+          }
+          return group
+        }),
+      }
+    })
+
+    // Show toast with result
+    if (matchCount > 0) {
+      setToast({
+        message: `Filtered ${matchCount} request${matchCount !== 1 ? 's' : ''} matching "${pattern}"`,
+        type: 'success',
+      })
+    } else {
+      setToast({
+        message: `Filter added. No current requests match "${pattern}"`,
+        type: 'info',
+      })
+    }
+
+    return matchCount
+  }, [filteredTrace])
+
   const disablePrevious = combinedMarkers.length === 0 || activeMarkerIndex <= 0
   const disableNext =
     combinedMarkers.length === 0 || activeMarkerIndex === combinedMarkers.length - 1
@@ -833,6 +907,8 @@ function App() {
       onPinnedHeightChange={setPinnedJourneyHeight}
       allMarkers={combinedMarkers}
       activeMarkerIndex={activeMarkerIndex}
+      filterGroups={filterGroupOptions}
+      onAddFilter={handleAddFilter}
     />
   )
 
@@ -868,6 +944,29 @@ function App() {
       </main>
 
       <FooterBar status={status} />
+
+      {/* Toast notification */}
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 z-[10002] -translate-x-1/2 animate-fade-in">
+          <div
+            className={`flex items-center gap-3 rounded-xl border px-4 py-3 shadow-lg backdrop-blur-sm ${
+              toast.type === 'success'
+                ? 'border-emerald-500/40 bg-emerald-500/20 text-emerald-100'
+                : 'border-blue-500/40 bg-blue-500/20 text-blue-100'
+            }`}
+          >
+            <span className="text-sm font-medium">{toast.message}</span>
+            <button
+              type="button"
+              onClick={() => setToast(null)}
+              className="ml-2 text-current opacity-60 transition hover:opacity-100"
+              aria-label="Dismiss"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

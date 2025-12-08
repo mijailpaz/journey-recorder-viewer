@@ -1,4 +1,5 @@
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
+import { Download, Upload } from 'lucide-react'
 import type { TraceEvent, TraceFile } from '../types/trace'
 import type { TraceFilterCounts, TraceFilterSettings } from '../utils/traceFilters'
 
@@ -54,6 +55,8 @@ const TraceSettingsPanel = ({
   onUpdateSettings,
   onResetFilters,
 }: TraceSettingsPanelProps) => {
+  const importInputRef = useRef<HTMLInputElement>(null)
+
   if (!rawTrace) {
     return null
   }
@@ -62,6 +65,72 @@ const TraceSettingsPanel = ({
   const visibleEvents = filteredTrace?.events?.length ?? 0
   const filteredEvents = Math.max(totalEvents - visibleEvents, 0)
   const jsonText = useMemo(() => jsonPreview(filteredTrace), [filteredTrace])
+
+  const handleExportFilters = () => {
+    const exportData = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      filters: {
+        applyFilters: settings.applyFilters,
+        customRegexText: settings.customRegexText,
+        groups: settings.groups.map((group) => ({
+          id: group.id,
+          label: group.label,
+          description: group.description,
+          enabled: group.enabled,
+          patternsText: group.patternsText,
+        })),
+      },
+    }
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+      type: 'application/json',
+    })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `journey-filters-${new Date().toISOString().split('T')[0]}.json`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
+
+  const handleImportFilters = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) {
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      try {
+        const content = e.target?.result as string
+        const importData = JSON.parse(content)
+        
+        // Validate the imported data structure
+        if (!importData.filters || !Array.isArray(importData.filters.groups)) {
+          throw new Error('Invalid filter file format')
+        }
+
+        onUpdateSettings(() => ({
+          applyFilters: importData.filters.applyFilters ?? true,
+          customRegexText: importData.filters.customRegexText ?? '',
+          groups: importData.filters.groups.map((group: TraceFilterSettings['groups'][0]) => ({
+            id: group.id,
+            label: group.label,
+            description: group.description,
+            enabled: group.enabled ?? true,
+            patternsText: group.patternsText ?? '',
+          })),
+        }))
+      } catch (error) {
+        console.error('Failed to import filters:', error)
+        alert('Failed to import filters. Please check the file format.')
+      }
+    }
+    reader.readAsText(file)
+    // Reset the input so the same file can be imported again
+    event.target.value = ''
+  }
 
   return (
     <section className="rounded-2xl border border-borderMuted bg-panelMuted/40 px-5 py-5">
@@ -86,6 +155,31 @@ const TraceSettingsPanel = ({
             />
             Apply filters
           </label>
+          <button
+            type="button"
+            onClick={handleExportFilters}
+            className="flex items-center gap-1.5 rounded-lg border border-borderMuted px-3 py-1 text-sm text-gray-300 transition hover:bg-panel"
+            title="Export filter settings to JSON file"
+          >
+            <Download size={14} />
+            Export
+          </button>
+          <button
+            type="button"
+            onClick={() => importInputRef.current?.click()}
+            className="flex items-center gap-1.5 rounded-lg border border-borderMuted px-3 py-1 text-sm text-gray-300 transition hover:bg-panel"
+            title="Import filter settings from JSON file"
+          >
+            <Upload size={14} />
+            Import
+          </button>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept=".json"
+            onChange={handleImportFilters}
+            className="hidden"
+          />
           <button
             type="button"
             onClick={onResetFilters}
