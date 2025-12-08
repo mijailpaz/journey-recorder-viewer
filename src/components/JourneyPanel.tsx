@@ -187,7 +187,7 @@ const DetailChip = ({
   className?: string
 }) => (
   <span
-    className={`inline-flex items-center gap-1 rounded-full border border-borderMuted bg-panel px-2.5 py-0.5 text-[11px] font-medium text-gray-100 ${className}`}
+    className={`inline-flex items-center gap-1 rounded-full border border-borderMuted bg-panel px-2.5 py-0.5 text-sm font-medium text-gray-100 ${className}`}
     style={color ? { color, borderColor: color + '4d', backgroundColor: color + '1a' } : undefined}
   >
     {children}
@@ -235,25 +235,25 @@ const FlowBadge = ({
 }) => (
   <div className="flex items-center gap-2.5 flex-wrap mt-2">
     {typeof eventNumber === 'number' && (
-      <EventNumberBadge number={eventNumber} />
+      <EventNumberBadge number={eventNumber} size="md" />
     )}
     {origin && (
       <>
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-borderMuted bg-panel px-3 py-1 text-xs font-medium text-gray-100">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-borderMuted bg-panel px-3 py-1 text-base font-medium text-gray-100">
           {isClick ? <User size={14} /> : <Globe size={14} />}
           {origin}
         </span>
         <ArrowRight size={16} className="text-gray-500" />
       </>
     )}
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1 text-xs font-medium text-blue-300">
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1 text-base font-medium text-blue-300">
       {isClick && <Mouse size={14} />}
       {message}
     </span>
     {destination && (
       <>
         <ArrowRight size={16} className="text-gray-500" />
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-borderMuted bg-panel px-3 py-1 text-xs font-medium text-gray-100">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-borderMuted bg-panel px-3 py-1 text-base font-medium text-gray-100">
           <Globe size={14} />
           {destination}
         </span>
@@ -383,14 +383,11 @@ const JourneyPanel = memo(({
                 <p className="text-xs text-gray-500">{summary} window</p>
               )}
             </div>
-            <div className="flex items-center gap-2">
-              {marker && typeof activeMarkerIndex === 'number' && (
-                <EventNumberBadge number={activeMarkerIndex + 1} />
-              )}
+            {!marker && (
               <p className="text-base font-semibold text-gray-50 truncate">
-                {marker?.label ?? 'Select a timeline item to inspect'}
+                Select a timeline item to inspect
               </p>
-            </div>
+            )}
           </div>
           
           {/* Controls */}
@@ -497,13 +494,28 @@ const JourneyPanel = memo(({
         {/* Metadata chips row */}
         {marker && (
           <div className="flex flex-wrap items-center gap-2 mb-3">
+            {typeof activeMarkerIndex === 'number' && (
+              <EventNumberBadge number={activeMarkerIndex + 1} />
+            )}
             <DetailChip color={marker.color}>
               {typeLabel}
             </DetailChip>
             {marker.from && marker.to && (
-              <DetailChip>
-                {marker.from} <ArrowRight size={12} className="mx-1 inline text-gray-500" /> {marker.to}
-              </DetailChip>
+              <>
+                <span className="inline-flex items-center gap-1 rounded-full border border-borderMuted bg-panel px-2.5 py-0.5 text-sm font-medium text-gray-100">
+                  <Globe size={12} />
+                  {marker.from}
+                </span>
+                <ArrowRight size={12} className="text-gray-500" />
+                <span className="inline-flex items-center gap-1 rounded-full border border-blue-500/30 bg-blue-500/10 px-2.5 py-0.5 text-sm font-medium text-blue-300">
+                  {marker.label}
+                </span>
+                <ArrowRight size={12} className="text-gray-500" />
+                <span className="inline-flex items-center gap-1 rounded-full border border-borderMuted bg-panel px-2.5 py-0.5 text-sm font-medium text-gray-100">
+                  <Globe size={12} />
+                  {marker.to}
+                </span>
+              </>
             )}
             {event?.type && event.kind === 'request' && (
               <DetailChip>Type: {event.type}</DetailChip>
@@ -791,20 +803,20 @@ const EventDetailsDialog = ({
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {previousFlowData.origin && (
                     <>
-                      <span className="inline-flex items-center gap-1 rounded-full border border-borderMuted bg-panel/50 px-2 py-0.5 text-[10px] font-medium text-gray-400">
+                      <span className="inline-flex items-center gap-1 rounded-full border border-borderMuted bg-panel/50 px-2 py-0.5 font-medium text-gray-400">
                         {previousFlowData.isClick ? <User size={10} /> : <Globe size={10} />}
                         {previousFlowData.origin}
                       </span>
                       <ArrowRight size={12} className="text-gray-600" />
                     </>
                   )}
-                  <span className="text-[10px] text-gray-500 font-mono truncate max-w-[200px]">
+                  <span className="text-gray-500 font-mono truncate max-w-[200px]">
                     {previousFlowData.message}
                   </span>
                   {previousFlowData.destination && (
                     <>
                       <ArrowRight size={12} className="text-gray-600" />
-                      <span className="inline-flex items-center gap-1 rounded-full border border-borderMuted bg-panel/50 px-2 py-0.5 text-[10px] font-medium text-gray-400">
+                      <span className="inline-flex items-center gap-1 rounded-full border border-borderMuted bg-panel/50 px-2 py-0.5 font-medium text-gray-400">
                         <Globe size={10} />
                         {previousFlowData.destination}
                       </span>
@@ -839,20 +851,20 @@ const EventDetailsDialog = ({
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {nextFlowData.origin && (
                     <>
-                      <span className="inline-flex items-center gap-1 rounded-full border border-borderMuted bg-panel/50 px-2 py-0.5 text-[10px] font-medium text-gray-400">
+                      <span className="inline-flex items-center gap-1 rounded-full border border-borderMuted bg-panel/50 px-2 py-0.5 font-medium text-gray-400">
                         {nextFlowData.isClick ? <User size={10} /> : <Globe size={10} />}
                         {nextFlowData.origin}
                       </span>
                       <ArrowRight size={12} className="text-gray-600" />
                     </>
                   )}
-                  <span className="text-[10px] text-gray-500 font-mono truncate max-w-[200px]">
+                  <span className="text-gray-500 font-mono truncate max-w-[200px]">
                     {nextFlowData.message}
                   </span>
                   {nextFlowData.destination && (
                     <>
                       <ArrowRight size={12} className="text-gray-600" />
-                      <span className="inline-flex items-center gap-1 rounded-full border border-borderMuted bg-panel/50 px-2 py-0.5 text-[10px] font-medium text-gray-400">
+                      <span className="inline-flex items-center gap-1 rounded-full border border-borderMuted bg-panel/50 px-2 py-0.5 font-medium text-gray-400">
                         <Globe size={10} />
                         {nextFlowData.destination}
                       </span>
