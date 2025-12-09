@@ -88,6 +88,20 @@ const deriveParticipants = (event: TraceEvent, currentHost: string) => {
     }
     return { from: 'User', to: clickHost }
   }
+  if (event.kind === 'navigation') {
+    const navHost = event.host ? normalizeHost(event.host) : 'WebApp'
+    const transitionLabel = event.transitionType || 'navigate'
+    return { from: 'User', to: `${navHost} (${transitionLabel})` }
+  }
+  if (event.kind === 'spa-navigation') {
+    const currentSpaHost = event.previousHost ? normalizeHost(event.previousHost) : 'WebApp'
+    const targetSpaHost = event.host ? normalizeHost(event.host) : currentSpaHost
+    const navType = event.navigationType || 'navigate'
+    if (currentSpaHost !== targetSpaHost) {
+      return { from: 'User', to: `${currentSpaHost} → ${targetSpaHost} (${navType})` }
+    }
+    return { from: 'User', to: `${targetSpaHost} (${navType})` }
+  }
   if (event.kind === 'request') {
     return { from: currentHost, to: extractEndpointName(event) }
   }
@@ -179,16 +193,19 @@ const computeTimeline = (
   const relatedRequestsByEventId = new Map<string, TraceEvent[]>()
   const requestTriggerMap = new Map<string, TraceEvent | null>()
 
-  let lastClick: TraceEvent | null = null
+  const isInteractionKind = (kind: string) =>
+    kind === 'click' || kind === 'navigation' || kind === 'spa-navigation'
+
+  let lastInteraction: TraceEvent | null = null
   for (let i = 0; i < events.length; i += 1) {
     const event = events[i]
     const key = getEventInternalId(event, getEventKey(event, i))
-    if (event.kind === 'click') {
-      lastClick = event
+    if (isInteractionKind(event.kind)) {
+      lastInteraction = event
       const related: TraceEvent[] = []
       for (let j = i + 1; j < events.length; j += 1) {
         const candidate = events[j]
-        if (candidate.kind === 'click') {
+        if (isInteractionKind(candidate.kind)) {
           break
         }
         if (candidate.kind === 'request') {
@@ -197,24 +214,28 @@ const computeTimeline = (
       }
       relatedRequestsByEventId.set(key, related)
     } else if (event.kind === 'request') {
-      requestTriggerMap.set(key, lastClick)
+      requestTriggerMap.set(key, lastInteraction)
     }
   }
 
-  // Get the current host for a request based on its triggering click
+  // Get the current host for a request based on its triggering interaction (click or navigation)
   const getCurrentHostForRequest = (event: TraceEvent): string => {
     const eventKey = getEventInternalId(event, getEventKey(event, events.indexOf(event)))
-    const triggerClick = requestTriggerMap.get(eventKey)
-    if (triggerClick) {
-      // Use targetHost if the click navigated, otherwise use the click's host
-      if (triggerClick.targetHost) {
-        const targetNormalized = normalizeHost(triggerClick.targetHost)
-        const clickHost = triggerClick.host ? normalizeHost(triggerClick.host) : 'WebApp'
+    const triggerInteraction = requestTriggerMap.get(eventKey)
+    if (triggerInteraction) {
+      // For navigation events, use the destination host
+      if (triggerInteraction.kind === 'navigation' || triggerInteraction.kind === 'spa-navigation') {
+        return triggerInteraction.host ? normalizeHost(triggerInteraction.host) : 'WebApp'
+      }
+      // For clicks, use targetHost if the click navigated, otherwise use the click's host
+      if (triggerInteraction.targetHost) {
+        const targetNormalized = normalizeHost(triggerInteraction.targetHost)
+        const clickHost = triggerInteraction.host ? normalizeHost(triggerInteraction.host) : 'WebApp'
         if (targetNormalized !== clickHost) {
           return targetNormalized
         }
       }
-      return triggerClick.host ? normalizeHost(triggerClick.host) : 'WebApp'
+      return triggerInteraction.host ? normalizeHost(triggerInteraction.host) : 'WebApp'
     }
     return 'WebApp'
   }
@@ -223,7 +244,9 @@ const computeTimeline = (
     const ts = typeof event.ts === 'number' ? event.ts : startTs
     const position = clampPercent(((ts - startTs) / range) * 100)
     const label = event.label ?? event.text ?? event.path ?? event.method ?? event.kind
-    const color = event.kind === 'click' ? '#f5d742' : '#4aa3ff'
+    const isInteractionEvent =
+      event.kind === 'click' || event.kind === 'navigation' || event.kind === 'spa-navigation'
+    const color = isInteractionEvent ? '#f5d742' : '#4aa3ff'
     const currentHost = event.kind === 'request' ? getCurrentHostForRequest(event) : 'WebApp'
     const participants = deriveParticipants(event, currentHost)
     const eventKey = getEventInternalId(event, getEventKey(event, index))
@@ -244,11 +267,13 @@ const computeTimeline = (
     }
   }
 
-  const clicks = events.filter((event) => event.kind === 'click').map(toMarker)
+  const isInteraction = (event: TraceEvent) =>
+    event.kind === 'click' || event.kind === 'navigation' || event.kind === 'spa-navigation'
+  const interactions = events.filter(isInteraction).map(toMarker)
   const requests = events.filter((event) => event.kind === 'request').map(toMarker)
 
   return {
-    clicks,
+    clicks: interactions,
     requests,
     timeRangeMs: range,
     startTs,

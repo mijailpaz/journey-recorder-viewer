@@ -6,6 +6,7 @@ import { DetailCard } from '../shared/DetailCard'
 import { EventNumberBadge } from '../shared/EventNumberBadge'
 import { FlowBadge } from '../shared/FlowBadge'
 import { ClickDetailsContent } from '../details/ClickDetailsContent'
+import { NavigationDetailsContent } from '../details/NavigationDetailsContent'
 import { RequestDetailsContent } from '../details/RequestDetailsContent'
 
 type EventDetailsDialogProps = {
@@ -22,16 +23,24 @@ const getFlowDataForMarker = (targetMarker: TimelineMarker) => {
   const event = targetMarker.event
   if (!event) return null
 
-  const isClick = event.kind === 'click'
-  const message = isClick
-    ? event.label || event.text || event.selector || 'element'
-    : event.path || targetMarker.label
+  const isInteraction = event.kind === 'click' || event.kind === 'navigation' || event.kind === 'spa-navigation'
+  
+  let message: string
+  if (event.kind === 'click') {
+    message = event.label || event.text || event.selector || 'element'
+  } else if (event.kind === 'navigation') {
+    message = event.path || event.url || event.transitionType || 'navigation'
+  } else if (event.kind === 'spa-navigation') {
+    message = event.path || event.url || event.navigationType || 'navigation'
+  } else {
+    message = event.path || targetMarker.label
+  }
 
   return {
     origin: targetMarker.from || null,
     message,
     destination: targetMarker.to || null,
-    isClick,
+    isClick: isInteraction,
   }
 }
 
@@ -176,6 +185,9 @@ export const EventDetailsDialog = ({
         <div className="px-6 py-5 overflow-auto flex-1">
           {event?.kind === 'click' && (
             <ClickDetailsContent event={event} related={marker.relatedRequests ?? []} />
+          )}
+          {(event?.kind === 'navigation' || event?.kind === 'spa-navigation') && (
+            <NavigationDetailsContent event={event} related={marker.relatedRequests ?? []} />
           )}
           {event?.kind === 'request' && (
             <RequestDetailsContent event={event} triggeredBy={marker.triggeredBy} />

@@ -157,6 +157,38 @@ const getClickTargetHost = (event: TraceEvent): string | null => {
   return null
 }
 
+const getNavigationLabel = (event: TraceEvent): string => {
+  const transitionType = event.transitionType || 'navigate'
+  const path = normalizePath(event.path)
+  
+  const transitionLabels: Record<string, string> = {
+    typed: 'Navigate (typed)',
+    reload: 'Reload',
+    link: 'Navigate',
+    auto_bookmark: 'Navigate (bookmark)',
+    form_submit: 'Form Submit',
+    back_forward: 'Back/Forward',
+  }
+  
+  const label = transitionLabels[transitionType] || 'Navigate'
+  return `${label} ${truncate(path, MAX_LABEL_LENGTH - label.length - 1)}`
+}
+
+const getSpaNavigationLabel = (event: TraceEvent): string => {
+  const navType = event.navigationType || 'navigate'
+  const path = normalizePath(event.path)
+  
+  const navLabels: Record<string, string> = {
+    pushState: 'Route to',
+    replaceState: 'Replace route',
+    popstate: 'Back/Forward',
+    hashchange: 'Hash change',
+  }
+  
+  const label = navLabels[navType] || 'Navigate'
+  return `${label} ${truncate(path, MAX_LABEL_LENGTH - label.length - 1)}`
+}
+
 export const generateMermaidFromTrace = (events?: TraceEvent[] | null): string => {
   const lines = ['sequenceDiagram', '  autonumber']
   if (!events || events.length === 0) {
@@ -165,7 +197,7 @@ export const generateMermaidFromTrace = (events?: TraceEvent[] | null): string =
   }
 
   let hasOutput = false
-  let hasActiveClick = false
+  let hasActiveInteraction = false
   let currentHost = 'WebApp'
 
   events.forEach((event) => {
@@ -179,7 +211,7 @@ export const generateMermaidFromTrace = (events?: TraceEvent[] | null): string =
       }
       lines.push(`  User->>${clickHost}: Click "${sanitize(label)}"`)
       hasOutput = true
-      hasActiveClick = true
+      hasActiveInteraction = true
       
       // If click navigates to a different host, show the navigation
       if (targetHost) {
@@ -191,8 +223,50 @@ export const generateMermaidFromTrace = (events?: TraceEvent[] | null): string =
       return
     }
 
+    if (event.kind === 'navigation') {
+      const navHost = event.host ? normalizeHost(event.host) : 'WebApp'
+      const label = getNavigationLabel(event)
+      
+      if (event.id !== undefined) {
+        lines.push(`  %%${event.id}`)
+      }
+      
+      // Navigation is a user-initiated page load
+      if (currentHost !== navHost) {
+        lines.push(`  User->>${navHost}: ${sanitize(label)}`)
+      } else {
+        lines.push(`  User->>${currentHost}: ${sanitize(label)}`)
+      }
+      
+      hasOutput = true
+      hasActiveInteraction = true
+      currentHost = navHost
+      return
+    }
+
+    if (event.kind === 'spa-navigation') {
+      const targetHost = event.host ? normalizeHost(event.host) : currentHost
+      const label = getSpaNavigationLabel(event)
+      
+      if (event.id !== undefined) {
+        lines.push(`  %%${event.id}`)
+      }
+      
+      // SPA navigation is typically within the same app
+      if (currentHost !== targetHost) {
+        lines.push(`  ${currentHost}->>${targetHost}: ${sanitize(label)}`)
+      } else {
+        lines.push(`  ${currentHost}->>${currentHost}: ${sanitize(label)}`)
+      }
+      
+      hasOutput = true
+      hasActiveInteraction = true
+      currentHost = targetHost
+      return
+    }
+
     if (event.kind === 'request') {
-      if (!hasActiveClick) {
+      if (!hasActiveInteraction) {
         return
       }
       const requestLine = formatRequestForMermaid(event)
@@ -213,7 +287,7 @@ export const generateMermaidFromTrace = (events?: TraceEvent[] | null): string =
   })
 
   if (!hasOutput) {
-    lines.push('  Note over User,WebApp: No click-driven events recorded')
+    lines.push('  Note over User,WebApp: No interaction events recorded')
   }
 
   return lines.join('\n')

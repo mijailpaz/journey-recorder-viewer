@@ -94,12 +94,22 @@ const JourneyPanel = memo(
     const summary =
       timeRangeMs && timeRangeMs > 0 ? `${(timeRangeMs / 1000).toFixed(2)}s` : null
 
-    const typeLabel =
-      event?.kind === 'click'
-        ? 'Click'
-        : event?.kind === 'request'
-          ? `Request · ${event.method ?? 'GET'}`
-          : 'Event'
+    const getTypeLabel = () => {
+      if (!event) return 'Event'
+      switch (event.kind) {
+        case 'click':
+          return 'Click'
+        case 'request':
+          return `Request · ${event.method ?? 'GET'}`
+        case 'navigation':
+          return `Navigation · ${event.transitionType ?? 'navigate'}`
+        case 'spa-navigation':
+          return `SPA Navigation · ${event.navigationType ?? 'navigate'}`
+        default:
+          return 'Event'
+      }
+    }
+    const typeLabel = getTypeLabel()
 
     const iconSize = 14
     const baseButtonClass =
@@ -302,10 +312,10 @@ const JourneyPanel = memo(
             <div className="flex gap-3">
               <div className="flex-1 space-y-1.5">
                 <Track
-                  title="Click Events"
+                  title="Interactions"
                   colorClass="bg-accent"
                   events={clicks}
-                  emptyLabel="Awaiting click events"
+                  emptyLabel="Awaiting interactions"
                   onMarkerClick={onMarkerClick}
                   isPinned={isPinned}
                 />

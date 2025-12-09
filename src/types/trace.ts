@@ -1,4 +1,21 @@
-export type TraceKind = 'click' | 'request' | string
+export type TraceKind = 'click' | 'request' | 'navigation' | 'spa-navigation' | string
+
+// Navigation transition types from chrome.webNavigation API
+export type NavigationTransitionType =
+  | 'link'
+  | 'typed'
+  | 'auto_bookmark'
+  | 'auto_subframe'
+  | 'manual_subframe'
+  | 'generated'
+  | 'start_page'
+  | 'form_submit'
+  | 'reload'
+  | 'keyword'
+  | 'keyword_generated'
+
+// SPA navigation types from history API
+export type SpaNavigationType = 'pushState' | 'replaceState' | 'popstate' | 'hashchange'
 
 export interface TraceCapturedBody {
   mimeType?: string
@@ -59,6 +76,15 @@ export interface TraceEvent {
   requestBody?: TraceCapturedBody | null
   responseBody?: TraceCapturedBody | null
   timings?: TraceNetworkTimings
+  // Navigation event fields (from webNavigation.onCommitted)
+  transitionType?: NavigationTransitionType
+  transitionQualifiers?: string[]
+  // SPA navigation event fields (from history API)
+  navigationType?: SpaNavigationType
+  previousUrl?: string
+  previousHost?: string
+  previousPath?: string
+  previousQs?: string | null
 }
 
 export interface TraceFile {
