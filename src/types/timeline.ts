@@ -55,4 +55,5 @@ export type JourneyPanelProps = {
   activeMarkerIndex?: number
   filterGroups?: FilterGroupOption[]
   onAddFilter?: (domain: string, groupId: string) => number
+  isLoading?: boolean
 }

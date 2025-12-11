@@ -23,6 +23,7 @@ import {
   ZoomOut,
 } from 'lucide-react'
 import mermaid from 'mermaid'
+import { DiagramSkeleton, LoadingOverlay } from './shared'
 
 mermaid.initialize({
   startOnLoad: false,
@@ -37,6 +38,7 @@ type DiagramPanelProps = {
   activeTraceId?: string | number | null
   activeTraceColor?: string | null
   isAutoZoomEnabled?: boolean
+  isLoading?: boolean
 }
 
 type CopyStatus = 'idle' | 'copied' | 'error'
@@ -284,9 +286,11 @@ const DiagramPanel = ({
   activeTraceId,
   activeTraceColor,
   isAutoZoomEnabled = false,
+  isLoading = false,
 }: DiagramPanelProps) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const [renderError, setRenderError] = useState<string | null>(null)
+  const [isRendering, setIsRendering] = useState(false)
   const [transform, setTransform] = useState<ViewTransform>(() => createDefaultTransform())
   const transformRef = useRef<ViewTransform>(createDefaultTransform())
   const [isFullscreenOpen, setIsFullscreenOpen] = useState(false)
@@ -327,9 +331,11 @@ const DiagramPanel = ({
       if (containerRef.current) {
         containerRef.current.innerHTML = ''
       }
+      setIsRendering(false)
       return
     }
 
+    setIsRendering(true)
     const render = async () => {
       try {
         const { svg } = await mermaid.render(
@@ -350,6 +356,10 @@ const DiagramPanel = ({
           if (containerRef.current) {
             containerRef.current.innerHTML = ''
           }
+        }
+      } finally {
+        if (isMounted) {
+          setIsRendering(false)
         }
       }
     }
@@ -516,11 +526,15 @@ const DiagramPanel = ({
           {renderError && !diagram.trim() && (
             <p className="text-sm text-red-400">Mermaid error: {renderError}</p>
           )}
-          {hasDiagram ? (
+          {isLoading ? (
+            <DiagramSkeleton />
+          ) : hasDiagram ? (
             <>
               <div
                 ref={containerRef}
-                className="mermaid h-full w-full cursor-grab select-none overflow-hidden text-gray-100 active:cursor-grabbing [&>svg]:mx-auto [&>svg]:block [&>svg]:max-w-none"
+                className={`mermaid h-full w-full cursor-grab select-none overflow-hidden text-gray-100 active:cursor-grabbing [&>svg]:mx-auto [&>svg]:block [&>svg]:max-w-none transition-opacity ${
+                  isRendering ? 'opacity-30' : 'opacity-100'
+                }`}
                 onPointerDown={handleCanvasPointerDown}
                 onPointerMove={handleCanvasPointerMove}
                 onPointerUp={handleCanvasPointerUp}
@@ -528,7 +542,8 @@ const DiagramPanel = ({
                 onPointerCancel={handleCanvasPointerUp}
                 onWheel={handleCanvasWheel}
               />
-              {!renderError && (
+              {isRendering && <LoadingOverlay message="Rendering diagram..." />}
+              {!renderError && !isRendering && (
                 <DiagramControls
                   onPanLeft={() => handlePan(PAN_STEP, 0)}
                   onPanRight={() => handlePan(-PAN_STEP, 0)}
@@ -539,12 +554,14 @@ const DiagramPanel = ({
                   onReset={handleReset}
                 />
               )}
-              <DiagramActions
-                copyStatus={copyStatus}
-                onOpenFullscreen={handleOpenFullscreen}
-                onCopyDiagram={handleCopyDiagram}
-                onDownloadDiagram={hasDiagram ? handleDownloadDiagram : undefined}
-              />
+              {!isRendering && (
+                <DiagramActions
+                  copyStatus={copyStatus}
+                  onOpenFullscreen={handleOpenFullscreen}
+                  onCopyDiagram={handleCopyDiagram}
+                  onDownloadDiagram={hasDiagram ? handleDownloadDiagram : undefined}
+                />
+              )}
             </>
           ) : (
             <div className="flex h-full items-center justify-center text-sm text-gray-500">
@@ -719,6 +736,7 @@ const FullscreenDiagramDialog = ({
 }: FullscreenDiagramDialogProps) => {
   const canvasRef = useRef<HTMLDivElement>(null)
   const [dialogError, setDialogError] = useState<string | null>(null)
+  const [isRendering, setIsRendering] = useState(false)
   const [transform, setTransform] = useState<ViewTransform>(() => createDefaultTransform())
   const transformRef = useRef<ViewTransform>(createDefaultTransform())
   const dragStateRef = useRef<{ pointerId: number | null; lastX: number; lastY: number }>({
@@ -814,10 +832,12 @@ const FullscreenDiagramDialog = ({
       if (canvasRef.current) {
         canvasRef.current.innerHTML = ''
       }
+      setIsRendering(false)
       return
     }
 
     let isMounted = true
+    setIsRendering(true)
     const render = async () => {
       try {
         const { svg } = await mermaid.render(`journey-fullscreen-${Date.now()}`, diagram)
@@ -835,6 +855,10 @@ const FullscreenDiagramDialog = ({
           if (canvasRef.current) {
             canvasRef.current.innerHTML = ''
           }
+        }
+      } finally {
+        if (isMounted) {
+          setIsRendering(false)
         }
       }
     }
@@ -918,7 +942,9 @@ const FullscreenDiagramDialog = ({
               <>
                 <div
                   ref={canvasRef}
-                  className="mermaid h-full w-full cursor-grab select-none overflow-hidden text-gray-100 active:cursor-grabbing [&>svg]:h-auto [&>svg]:w-full [&>svg]:max-w-none"
+                  className={`mermaid h-full w-full cursor-grab select-none overflow-hidden text-gray-100 active:cursor-grabbing [&>svg]:h-auto [&>svg]:w-full [&>svg]:max-w-none transition-opacity ${
+                    isRendering ? 'opacity-30' : 'opacity-100'
+                  }`}
                   onPointerDown={handleCanvasPointerDown}
                   onPointerMove={handleCanvasPointerMove}
                   onPointerUp={handleCanvasPointerUp}
@@ -926,7 +952,8 @@ const FullscreenDiagramDialog = ({
                   onPointerCancel={handleCanvasPointerUp}
                   onWheel={handleCanvasWheel}
                 />
-                {!dialogError && (
+                {isRendering && <LoadingOverlay message="Rendering diagram..." />}
+                {!dialogError && !isRendering && (
                   <DiagramControls
                     onPanLeft={() => handlePan(PAN_STEP, 0)}
                     onPanRight={() => handlePan(-PAN_STEP, 0)}

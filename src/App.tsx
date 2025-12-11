@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useTransition,
   type ReactNode,
 } from 'react'
 import {
@@ -299,6 +300,8 @@ function App() {
   const [pinnedJourneyHeight, setPinnedJourneyHeight] = useState(0)
   const [showLoadSessionPanel, setShowLoadSessionPanel] = useState(true)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' } | null>(null)
+  const [isLoadingTrace, setIsLoadingTrace] = useState(false)
+  const [isFilterPending, startFilterTransition] = useTransition()
   const videoRef = useRef<HTMLVideoElement>(null)
   const autoHideLoadPanelRef = useRef(false)
 
@@ -364,6 +367,7 @@ function App() {
     if (!file) {
       return
     }
+    setIsLoadingTrace(true)
     try {
       const content = await file.text()
       const parsed = JSON.parse(content) as TraceFile
@@ -382,6 +386,8 @@ function App() {
       setEventOverrides({})
       setFileError('Unable to parse the trace JSON file.')
       console.error('Trace parse error', error)
+    } finally {
+      setIsLoadingTrace(false)
     }
   }, [])
 
@@ -714,8 +720,19 @@ function App() {
   )
 
   const handleResetFilters = useCallback(() => {
-    setFilterSettings(createDefaultFilterSettings())
-  }, [])
+    startFilterTransition(() => {
+      setFilterSettings(createDefaultFilterSettings())
+    })
+  }, [startFilterTransition])
+
+  const handleUpdateFilterSettings = useCallback(
+    (updater: TraceFilterSettings | ((prev: TraceFilterSettings) => TraceFilterSettings)) => {
+      startFilterTransition(() => {
+        setFilterSettings(updater)
+      })
+    },
+    [startFilterTransition],
+  )
 
   const handleAddFilter = useCallback((pattern: string, groupId: string): number => {
     // Count how many request events match this pattern in the current filtered trace
@@ -729,25 +746,27 @@ function App() {
       // Invalid regex - count will be 0
     }
 
-    setFilterSettings((prev) => {
-      // If adding to custom filters
-      if (groupId === 'custom') {
-        const currentText = prev.customRegexText.trim()
-        const newText = currentText ? `${currentText}\n${pattern}` : pattern
-        return { ...prev, customRegexText: newText }
-      }
-      // Otherwise add to a specific group
-      return {
-        ...prev,
-        groups: prev.groups.map((group) => {
-          if (group.id === groupId) {
-            const currentText = group.patternsText.trim()
-            const newText = currentText ? `${currentText}\n${pattern}` : pattern
-            return { ...group, patternsText: newText }
-          }
-          return group
-        }),
-      }
+    startFilterTransition(() => {
+      setFilterSettings((prev) => {
+        // If adding to custom filters
+        if (groupId === 'custom') {
+          const currentText = prev.customRegexText.trim()
+          const newText = currentText ? `${currentText}\n${pattern}` : pattern
+          return { ...prev, customRegexText: newText }
+        }
+        // Otherwise add to a specific group
+        return {
+          ...prev,
+          groups: prev.groups.map((group) => {
+            if (group.id === groupId) {
+              const currentText = group.patternsText.trim()
+              const newText = currentText ? `${currentText}\n${pattern}` : pattern
+              return { ...group, patternsText: newText }
+            }
+            return group
+          }),
+        }
+      })
     })
 
     // Show toast with result
@@ -764,7 +783,7 @@ function App() {
     }
 
     return matchCount
-  }, [filteredTrace])
+  }, [filteredTrace, startFilterTransition])
 
   const disablePrevious = combinedMarkers.length === 0 || activeMarkerIndex <= 0
   const disableNext =
@@ -820,6 +839,7 @@ function App() {
           trace: fileNames.trace,
         }}
         errorMessage={fileError}
+        isLoadingTrace={isLoadingTrace}
       />
       {loadedTraceFile && (
         <TraceSettingsPanel
@@ -830,7 +850,7 @@ function App() {
           manualRemovalCount={manualRemovalCount}
           removedEvents={removedEvents}
           onRestoreEvent={restoreEventByInternalId}
-          onUpdateSettings={setFilterSettings}
+          onUpdateSettings={handleUpdateFilterSettings}
           onResetFilters={handleResetFilters}
         />
       )}
@@ -934,6 +954,7 @@ function App() {
       activeMarkerIndex={activeMarkerIndex}
       filterGroups={filterGroupOptions}
       onAddFilter={handleAddFilter}
+      isLoading={isLoadingTrace || isFilterPending}
     />
   )
 
@@ -962,6 +983,7 @@ function App() {
             activeTraceId={activeTraceId}
             activeTraceColor={activeTraceColor}
             isAutoZoomEnabled={isAutoZoomEnabled}
+            isLoading={isLoadingTrace || isFilterPending}
           />
         </div>
 
