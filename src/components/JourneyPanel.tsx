@@ -163,46 +163,54 @@ const JourneyPanel = memo(
 
                 {/* Controls */}
                 <div className="flex items-center gap-1.5">
-                  {onSearchClick && (
+                  {/* Global/Panel controls */}
+                  <div className="flex items-center gap-1">
+                    {onSearchClick && (
+                      <button
+                        type="button"
+                        onClick={onSearchClick}
+                        className={baseButtonClass}
+                        aria-label="Search events"
+                        title="Search events"
+                      >
+                        <Search size={iconSize} />
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={onSearchClick}
+                      onClick={onTogglePin}
                       className={baseButtonClass}
-                      aria-label="Search events"
-                      title="Search events"
+                      aria-label={isPinned ? 'Unpin Journey Panel' : 'Pin Journey Panel to bottom'}
+                      title={isPinned ? 'Unpin Journey Panel' : 'Pin Journey Panel to bottom'}
                     >
-                      <Search size={iconSize} />
+                      {isPinned ? <PinOff size={iconSize} /> : <Pin size={iconSize} />}
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={onTogglePin}
-                    className={baseButtonClass}
-                    aria-label={isPinned ? 'Unpin Journey Panel' : 'Pin Journey Panel to bottom'}
-                    title={isPinned ? 'Unpin Journey Panel' : 'Pin Journey Panel to bottom'}
-                  >
-                    {isPinned ? <PinOff size={iconSize} /> : <Pin size={iconSize} />}
-                  </button>
-                  {onToggleAutoZoom && (
-                    <button
-                      type="button"
-                      onClick={onToggleAutoZoom}
-                      className={`flex h-7 w-7 items-center justify-center rounded-lg border transition hover:bg-panel hover:text-white ${
-                        isAutoZoomEnabled
-                          ? 'border-blue-400/70 bg-blue-500/20 text-blue-300'
-                          : 'border-borderMuted bg-panelMuted/70 text-gray-300'
-                      }`}
-                      aria-label={
-                        isAutoZoomEnabled
-                          ? 'Disable auto-zoom on diagram'
-                          : 'Enable auto-zoom on diagram'
-                      }
-                      title={isAutoZoomEnabled ? 'Auto-zoom enabled' : 'Auto-zoom disabled'}
-                      aria-pressed={isAutoZoomEnabled}
-                    >
-                      <Focus size={iconSize} />
-                    </button>
-                  )}
+                    {onToggleAutoZoom && (
+                      <button
+                        type="button"
+                        onClick={onToggleAutoZoom}
+                        className={`flex h-7 w-7 items-center justify-center rounded-lg border transition hover:bg-panel hover:text-white ${
+                          isAutoZoomEnabled
+                            ? 'border-blue-400/70 bg-blue-500/20 text-blue-300'
+                            : 'border-borderMuted bg-panelMuted/70 text-gray-300'
+                        }`}
+                        aria-label={
+                          isAutoZoomEnabled
+                            ? 'Disable auto-zoom on diagram'
+                            : 'Enable auto-zoom on diagram'
+                        }
+                        title={isAutoZoomEnabled ? 'Auto-zoom enabled' : 'Auto-zoom disabled'}
+                        aria-pressed={isAutoZoomEnabled}
+                      >
+                        <Focus size={iconSize} />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Separator */}
+                  <div className="h-5 w-px bg-borderMuted mx-1" />
+
+                  {/* Navigation controls */}
                   <div className="flex overflow-hidden rounded-xl border border-borderMuted bg-panelMuted/70">
                     <button
                       type="button"
@@ -225,61 +233,76 @@ const JourneyPanel = memo(
                       <ChevronRight size={iconSize} />
                     </button>
                   </div>
+
+                  {/* Event-specific actions */}
                   {marker && (
-                    <button
-                      type="button"
-                      onClick={() => setIsDetailsDialogOpen(true)}
-                      className={baseButtonClass}
-                      aria-label="View event details"
-                      title="View details"
-                    >
-                      <Eye size={iconSize} />
-                    </button>
-                  )}
-                  {eventEditor && event && (
                     <>
-                      <button
-                        type="button"
-                        onClick={handleEditClick}
-                        className={baseButtonClass}
-                        aria-label="Edit event"
-                        title="Edit event"
-                      >
-                        <Edit2 size={iconSize} />
-                      </button>
-                      {onAddFilter && filterGroups && (
+                      {/* Separator */}
+                      <div className="h-5 w-px bg-borderMuted mx-1" />
+
+                      <div className="flex items-center gap-1">
                         <button
                           type="button"
-                          onClick={() => setIsFilterDialogOpen(true)}
-                          className={`${baseButtonClass} ${event.kind !== 'request' ? 'opacity-40 cursor-not-allowed' : ''}`}
-                          aria-label={
-                            event.kind === 'request'
-                              ? 'Add domain to filter'
-                              : 'Filtering only available for requests'
-                          }
-                          title={
-                            event.kind === 'request'
-                              ? 'Add domain to filter'
-                              : 'Filtering only available for requests'
-                          }
-                          disabled={event.kind !== 'request'}
+                          onClick={() => setIsDetailsDialogOpen(true)}
+                          className={baseButtonClass}
+                          aria-label="View event details"
+                          title="View details"
                         >
-                          <Filter size={iconSize} />
+                          <Eye size={iconSize} />
                         </button>
+                        {eventEditor && event && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={handleEditClick}
+                              className={baseButtonClass}
+                              aria-label="Edit event"
+                              title="Edit event"
+                            >
+                              <Edit2 size={iconSize} />
+                            </button>
+                            {onAddFilter && filterGroups && (
+                              <button
+                                type="button"
+                                onClick={() => setIsFilterDialogOpen(true)}
+                                className={`${baseButtonClass} ${event.kind !== 'request' ? 'opacity-40 cursor-not-allowed' : ''}`}
+                                aria-label={
+                                  event.kind === 'request'
+                                    ? 'Add domain to filter'
+                                    : 'Filtering only available for requests'
+                                }
+                                title={
+                                  event.kind === 'request'
+                                    ? 'Add domain to filter'
+                                    : 'Filtering only available for requests'
+                                }
+                                disabled={event.kind !== 'request'}
+                              >
+                                <Filter size={iconSize} />
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </div>
+
+                      {/* Delete action - isolated */}
+                      {eventEditor && event && (
+                        <div className="ml-2">
+                          <button
+                            type="button"
+                            onClick={handleRemoveClick}
+                            className={`flex h-7 w-7 items-center justify-center rounded-lg border transition ${
+                              isRemoved
+                                ? 'border-amber-300/70 text-amber-200 hover:bg-amber-500/10'
+                                : 'border-red-400/60 text-red-200 hover:bg-red-500/10'
+                            }`}
+                            aria-label={isRemoved ? 'Restore event' : 'Remove event'}
+                            title={isRemoved ? 'Restore event' : 'Remove event'}
+                          >
+                            {isRemoved ? <RotateCcw size={iconSize} /> : <Trash2 size={iconSize} />}
+                          </button>
+                        </div>
                       )}
-                      <button
-                        type="button"
-                        onClick={handleRemoveClick}
-                        className={`flex h-7 w-7 items-center justify-center rounded-lg border transition ${
-                          isRemoved
-                            ? 'border-amber-300/70 text-amber-200 hover:bg-amber-500/10'
-                            : 'border-red-400/60 text-red-200 hover:bg-red-500/10'
-                        }`}
-                        aria-label={isRemoved ? 'Restore event' : 'Remove event'}
-                        title={isRemoved ? 'Restore event' : 'Remove event'}
-                      >
-                        {isRemoved ? <RotateCcw size={iconSize} /> : <Trash2 size={iconSize} />}
-                      </button>
                     </>
                   )}
                 </div>
