@@ -59,6 +59,7 @@ export const NavigationDetailsContent = ({ event, related, allMarkers, onNavigat
           requests={related}
           allMarkers={allMarkers}
           onNavigateToMarker={onNavigateToMarker}
+          collectionName={`${event.kind === 'spa-navigation' ? 'SPA Navigation' : 'Navigation'} - ${event.path || event.url || 'Page'}`}
         />
       )}
 

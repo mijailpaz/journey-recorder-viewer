@@ -28,6 +28,7 @@ export const ClickDetailsContent = ({ event, related, allMarkers, onNavigateToMa
           requests={related}
           allMarkers={allMarkers}
           onNavigateToMarker={onNavigateToMarker}
+          collectionName={`Click - ${event.label || event.selector || event.path || 'Interaction'}`}
         />
       )}
 

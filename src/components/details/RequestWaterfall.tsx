@@ -1,13 +1,16 @@
 import { memo, useCallback } from 'react'
+import { FileJson } from 'lucide-react'
 import type { TraceEvent } from '../../types/trace'
 import type { TimelineMarker } from '../../types/timeline'
 import { computeWaterfallData, formatWaterfallDuration } from '../../utils/waterfall'
+import { downloadPostmanCollection } from '../../utils/postmanExporter'
 
 type RequestWaterfallProps = {
   interactionTs: number | undefined
   requests: TraceEvent[]
   allMarkers?: TimelineMarker[]
   onNavigateToMarker?: (marker: TimelineMarker) => void
+  collectionName?: string
 }
 
 const WaterfallLegend = () => (
@@ -49,7 +52,7 @@ const TimeMarkers = ({ totalMs }: { totalMs: number }) => {
   )
 }
 
-export const RequestWaterfall = memo(({ interactionTs, requests, allMarkers, onNavigateToMarker }: RequestWaterfallProps) => {
+export const RequestWaterfall = memo(({ interactionTs, requests, allMarkers, onNavigateToMarker, collectionName }: RequestWaterfallProps) => {
   const data = computeWaterfallData(interactionTs, requests)
 
   // Find the marker and index for a request
@@ -89,7 +92,18 @@ export const RequestWaterfall = memo(({ interactionTs, requests, allMarkers, onN
         <h4 className="text-xs uppercase tracking-wider text-gray-500">
           Request Waterfall
         </h4>
-        <WaterfallLegend />
+        <div className="flex items-center gap-4">
+          <button
+            type="button"
+            onClick={() => downloadPostmanCollection(requests, collectionName)}
+            className="flex items-center gap-1.5 text-[10px] text-orange-300 hover:text-orange-200 transition-colors"
+            title="Export these requests as a Postman collection"
+          >
+            <FileJson size={12} />
+            <span>Export to Postman</span>
+          </button>
+          <WaterfallLegend />
+        </div>
       </div>
 
       <TimeMarkers totalMs={data.totalDurationMs} />
