@@ -151,3 +151,4 @@ export const getPerformanceRating = (
   }
   return { label: 'Very Slow', colorClass: 'text-red-400' }
 }
+

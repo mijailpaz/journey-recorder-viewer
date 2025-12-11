@@ -184,10 +184,20 @@ export const EventDetailsDialog = ({
         </div>
         <div className="px-6 py-5 overflow-auto flex-1">
           {event?.kind === 'click' && (
-            <ClickDetailsContent event={event} related={marker.relatedRequests ?? []} />
+            <ClickDetailsContent
+              event={event}
+              related={marker.relatedRequests ?? []}
+              allMarkers={allMarkers}
+              onNavigateToMarker={onNavigateToMarker}
+            />
           )}
           {(event?.kind === 'navigation' || event?.kind === 'spa-navigation') && (
-            <NavigationDetailsContent event={event} related={marker.relatedRequests ?? []} />
+            <NavigationDetailsContent
+              event={event}
+              related={marker.relatedRequests ?? []}
+              allMarkers={allMarkers}
+              onNavigateToMarker={onNavigateToMarker}
+            />
           )}
           {event?.kind === 'request' && (
             <RequestDetailsContent event={event} triggeredBy={marker.triggeredBy} />
