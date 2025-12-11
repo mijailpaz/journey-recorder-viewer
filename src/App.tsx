@@ -12,7 +12,7 @@ import {
   Settings,
 } from 'lucide-react'
 import DiagramPanel from './components/DiagramPanel'
-import { DownloadTraceDialog } from './components/dialogs'
+import { DownloadTraceDialog, SearchTraceDialog } from './components/dialogs'
 import FileInputs from './components/FileInputs'
 import FooterBar from './components/FooterBar'
 import HeaderBar from './components/HeaderBar'
@@ -303,6 +303,7 @@ function App() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' } | null>(null)
   const [isLoadingTrace, setIsLoadingTrace] = useState(false)
   const [showDownloadDialog, setShowDownloadDialog] = useState(false)
+  const [showSearchDialog, setShowSearchDialog] = useState(false)
   const [isFilterPending, startFilterTransition] = useTransition()
   const videoRef = useRef<HTMLVideoElement>(null)
   const autoHideLoadPanelRef = useRef(false)
@@ -969,6 +970,7 @@ function App() {
       activeMarkerIndex={activeMarkerIndex}
       filterGroups={filterGroupOptions}
       onAddFilter={handleAddFilter}
+      onSearchClick={() => setShowSearchDialog(true)}
       isLoading={isLoadingTrace || isFilterPending}
     />
   )
@@ -1036,6 +1038,19 @@ function App() {
           defaultFileName={getDefaultTraceFileName()}
           onDownload={handleDownloadFilteredTrace}
           onClose={() => setShowDownloadDialog(false)}
+        />
+      )}
+
+      {/* Search trace dialog */}
+      {showSearchDialog && (
+        <SearchTraceDialog
+          clicks={timeline.clicks}
+          requests={timeline.requests}
+          onSelectMarker={(marker) => {
+            handleMarkerSelect(marker)
+            setShowSearchDialog(false)
+          }}
+          onClose={() => setShowSearchDialog(false)}
         />
       )}
     </div>

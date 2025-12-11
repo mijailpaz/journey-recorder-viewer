@@ -12,6 +12,7 @@ import {
   Pin,
   PinOff,
   RotateCcw,
+  Search,
   Trash2,
 } from 'lucide-react'
 
@@ -61,6 +62,7 @@ const JourneyPanel = memo(
     activeMarkerIndex,
     filterGroups,
     onAddFilter,
+    onSearchClick,
     isLoading = false,
   }: JourneyPanelProps) => {
     const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
@@ -161,6 +163,17 @@ const JourneyPanel = memo(
 
                 {/* Controls */}
                 <div className="flex items-center gap-1.5">
+                  {onSearchClick && (
+                    <button
+                      type="button"
+                      onClick={onSearchClick}
+                      className={baseButtonClass}
+                      aria-label="Search events"
+                      title="Search events"
+                    >
+                      <Search size={iconSize} />
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={onTogglePin}
