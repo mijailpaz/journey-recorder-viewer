@@ -12,6 +12,7 @@ import {
   Settings,
 } from 'lucide-react'
 import DiagramPanel from './components/DiagramPanel'
+import { DownloadTraceDialog } from './components/dialogs'
 import FileInputs from './components/FileInputs'
 import FooterBar from './components/FooterBar'
 import HeaderBar from './components/HeaderBar'
@@ -301,6 +302,7 @@ function App() {
   const [showLoadSessionPanel, setShowLoadSessionPanel] = useState(true)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' } | null>(null)
   const [isLoadingTrace, setIsLoadingTrace] = useState(false)
+  const [showDownloadDialog, setShowDownloadDialog] = useState(false)
   const [isFilterPending, startFilterTransition] = useTransition()
   const videoRef = useRef<HTMLVideoElement>(null)
   const autoHideLoadPanelRef = useRef(false)
@@ -391,7 +393,14 @@ function App() {
     }
   }, [])
 
-  const handleDownloadFilteredTrace = useCallback(() => {
+  const getDefaultTraceFileName = useCallback(() => {
+    const baseName = fileNames.trace ? fileNames.trace.replace(/\.json$/i, '') : 'trace'
+    const now = new Date()
+    const dateStr = now.toISOString().slice(0, 10) // YYYY-MM-DD
+    return `${baseName}-${dateStr}`
+  }, [fileNames.trace])
+
+  const handleDownloadFilteredTrace = useCallback((fileName: string) => {
     if (!filteredTrace) {
       return
     }
@@ -400,14 +409,20 @@ function App() {
     })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
-    const baseName = fileNames.trace ? fileNames.trace.replace(/\.json$/i, '') : 'trace'
+    // Ensure .json extension
+    const finalName = fileName.endsWith('.json') ? fileName : `${fileName}.json`
     link.href = url
-    link.download = `${baseName}-filtered.json`
+    link.download = finalName
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
     URL.revokeObjectURL(url)
-  }, [filteredTrace, fileNames.trace])
+    setShowDownloadDialog(false)
+  }, [filteredTrace])
+
+  const handleOpenDownloadDialog = useCallback(() => {
+    setShowDownloadDialog(true)
+  }, [])
 
   const generatedDiagram = useMemo(() => {
     const events = filteredTrace?.events ?? null
@@ -882,7 +897,7 @@ function App() {
     <div className="group relative">
       <button
         type="button"
-        onClick={handleDownloadFilteredTrace}
+        onClick={handleOpenDownloadDialog}
         className="relative flex h-9 w-9 items-center justify-center rounded-full border border-borderMuted text-gray-200 transition hover:bg-panel hover:text-white"
         aria-label={downloadTooltipContent ?? 'Download updated trace JSON'}
       >
@@ -1013,6 +1028,15 @@ function App() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* Download trace dialog */}
+      {showDownloadDialog && (
+        <DownloadTraceDialog
+          defaultFileName={getDefaultTraceFileName()}
+          onDownload={handleDownloadFilteredTrace}
+          onClose={() => setShowDownloadDialog(false)}
+        />
       )}
     </div>
   )
