@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Copy } from 'lucide-react'
 import type { TraceEvent } from '../../types/trace'
 import { generateCurlCommand } from '../../utils/curlGenerator'
 import { formatBytes, formatMs, formatTimestamp, getStatusChipClass } from '../../utils/formatters'
@@ -92,9 +93,10 @@ export const RequestDetailsContent = ({ event, triggeredBy }: RequestDetailsCont
                 onClick={() => {
                   navigator.clipboard.writeText(curlCommand)
                 }}
-                className="text-xs text-blue-400 transition hover:text-blue-300 hover:underline"
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-blue-400 transition hover:bg-blue-500/10 hover:text-blue-300"
+                title="Copy to clipboard"
               >
-                Copy
+                <Copy size={14} />
               </button>
             </div>
             <textarea

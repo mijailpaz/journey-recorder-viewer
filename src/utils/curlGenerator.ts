@@ -52,9 +52,10 @@ export const generateCurlCommand = (event: TraceEvent): string | null => {
   }
 
   let fullUrl = event.url
-  if (event.qs && event.qs !== 'null') {
+  // Only append query string if the URL doesn't already contain query parameters
+  if (event.qs && event.qs !== 'null' && !event.url.includes('?')) {
     const qs = event.qs.startsWith('?') ? event.qs.slice(1) : event.qs
-    fullUrl = fullUrl.includes('?') ? `${fullUrl}&${qs}` : `${fullUrl}?${qs}`
+    fullUrl = `${fullUrl}?${qs}`
   }
 
   parts.push(`'${fullUrl.replace(/'/g, "'\\''")}'`)

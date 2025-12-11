@@ -1,7 +1,8 @@
 import { useMemo, useRef } from 'react'
-import { Download, Upload } from 'lucide-react'
+import { Download, Upload, FileJson } from 'lucide-react'
 import type { TraceEvent, TraceFile } from '../types/trace'
 import type { TraceFilterCounts, TraceFilterSettings } from '../utils/traceFilters'
+import { downloadPostmanCollection } from '../utils/postmanExporter'
 
 type TraceSettingsPanelProps = {
   rawTrace: TraceFile | null
@@ -33,12 +34,23 @@ const formatRemovedEvent = (event: TraceEvent) => {
   return `${event.kind === 'request' ? method : ''}${label}${status}`
 }
 
+const MAX_PREVIEW_LINES = 500
+
 const jsonPreview = (trace: TraceFile | null) => {
   if (!trace) {
     return 'Load a trace JSON file to preview the filtered output.'
   }
   try {
-    return JSON.stringify(trace, null, 2)
+    const text = JSON.stringify(trace, null, 2)
+    const lines = text.split('\n')
+
+    if (lines.length > MAX_PREVIEW_LINES) {
+      const visible = lines.slice(0, MAX_PREVIEW_LINES)
+      visible.push(`… truncated ${lines.length - MAX_PREVIEW_LINES} lines from preview …`)
+      return visible.join('\n')
+    }
+
+    return text
   } catch (error) {
     return `Unable to render trace: ${String(error)}`
   }
@@ -172,6 +184,20 @@ const TraceSettingsPanel = ({
           >
             <Upload size={14} />
             Import
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (filteredTrace?.events) {
+                downloadPostmanCollection(filteredTrace.events)
+              }
+            }}
+            disabled={!filteredTrace?.events?.length}
+            className="flex items-center gap-1.5 rounded-lg border border-orange-500/50 bg-orange-500/10 px-3 py-1 text-sm text-orange-300 transition hover:bg-orange-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+            title="Export all request events as Postman collection"
+          >
+            <FileJson size={14} />
+            Postman
           </button>
           <input
             ref={importInputRef}
