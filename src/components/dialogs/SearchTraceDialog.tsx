@@ -14,8 +14,7 @@ type SearchTraceDialogProps = {
 
 type HostStats = {
   host: string
-  count: number
-  firstMarker: TimelineMarker
+  markers: TimelineMarker[]
 }
 
 const extractHost = (marker: TimelineMarker): string => {
@@ -117,16 +116,35 @@ export const SearchTraceDialog = ({
 
       const existing = hostMap.get(host)
       if (existing) {
-        existing.count++
+        existing.markers.push(marker)
       } else {
-        hostMap.set(host, { host, count: 1, firstMarker: marker })
+        hostMap.set(host, { host, markers: [marker] })
       }
     })
 
-    let stats = Array.from(hostMap.values()).sort((a, b) => b.count - a.count)
+    let stats = Array.from(hostMap.values()).sort((a, b) => b.markers.length - a.markers.length)
 
     if (normalizedSearch) {
-      stats = stats.filter((s) => s.host.toLowerCase().includes(normalizedSearch))
+      stats = stats.filter((s) => {
+        // Check if host matches
+        if (s.host.toLowerCase().includes(normalizedSearch)) {
+          return true
+        }
+        // Check if any marker's URL/path matches
+        return s.markers.some((m) => {
+          const evt = m.event
+          const url = evt?.url?.toLowerCase() || ''
+          const path = evt?.path?.toLowerCase() || ''
+          const targetUrl = evt?.targetUrl?.toLowerCase() || ''
+          const targetPath = evt?.targetPath?.toLowerCase() || ''
+          return (
+            url.includes(normalizedSearch) ||
+            path.includes(normalizedSearch) ||
+            targetUrl.includes(normalizedSearch) ||
+            targetPath.includes(normalizedSearch)
+          )
+        })
+      })
     }
 
     return stats
@@ -135,6 +153,51 @@ export const SearchTraceDialog = ({
   const handleSelect = (marker: TimelineMarker) => {
     onSelectMarker(marker)
     onClose()
+  }
+
+  // Helper to check if a marker matches the search
+  const markerMatchesSearch = (m: TimelineMarker): boolean => {
+    const evt = m.event
+    const url = evt?.url?.toLowerCase() || ''
+    const path = evt?.path?.toLowerCase() || ''
+    const targetUrl = evt?.targetUrl?.toLowerCase() || ''
+    const targetPath = evt?.targetPath?.toLowerCase() || ''
+    return (
+      url.includes(normalizedSearch) ||
+      path.includes(normalizedSearch) ||
+      targetUrl.includes(normalizedSearch) ||
+      targetPath.includes(normalizedSearch)
+    )
+  }
+
+  // Get the marker to navigate to (first matching when searching, otherwise first)
+  const getTargetMarker = (stat: HostStats): TimelineMarker => {
+    if (!normalizedSearch) return stat.markers[0]
+    // If host itself matches, return first marker
+    if (stat.host.toLowerCase().includes(normalizedSearch)) return stat.markers[0]
+    // Otherwise find the first marker that matches
+    return stat.markers.find(markerMatchesSearch) || stat.markers[0]
+  }
+
+  // Get display info for the subtitle
+  const getHostSubtitle = (stat: HostStats): string => {
+    if (!normalizedSearch) {
+      return `First of ${stat.markers.length} request${stat.markers.length !== 1 ? 's' : ''}`
+    }
+    // If host matches, show count
+    if (stat.host.toLowerCase().includes(normalizedSearch)) {
+      return `${stat.markers.length} request${stat.markers.length !== 1 ? 's' : ''}`
+    }
+    // Count how many markers match the search
+    const matchCount = stat.markers.filter(markerMatchesSearch).length
+    const targetMarker = stat.markers.find(markerMatchesSearch)
+    const path = targetMarker?.event?.path || targetMarker?.event?.url || ''
+    // Show truncated path
+    const displayPath = path.length > 50 ? `...${path.slice(-47)}` : path
+    if (matchCount > 1) {
+      return `${displayPath} (+${matchCount - 1} more)`
+    }
+    return displayPath
   }
 
   const dialogContent = (
@@ -257,29 +320,32 @@ export const SearchTraceDialog = ({
                 {hostStats.length === 0 ? (
                   <p className="text-xs text-gray-500 py-2 pl-6">No matching hosts</p>
                 ) : (
-                  hostStats.map((stat) => (
-                    <button
-                      key={stat.host}
-                      type="button"
-                      onClick={() => handleSelect(stat.firstMarker)}
-                      className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition hover:bg-panelMuted group"
-                    >
-                      <span className="h-2 w-2 rounded-full bg-accentBlue flex-shrink-0" />
-                      <span className="flex-1 min-w-0">
-                        <span className="block text-sm text-gray-200 truncate group-hover:text-white">
-                          {stat.host}
+                  hostStats.map((stat) => {
+                    const targetMarker = getTargetMarker(stat)
+                    return (
+                      <button
+                        key={stat.host}
+                        type="button"
+                        onClick={() => handleSelect(targetMarker)}
+                        className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition hover:bg-panelMuted group"
+                      >
+                        <span className="h-2 w-2 rounded-full bg-accentBlue flex-shrink-0" />
+                        <span className="flex-1 min-w-0">
+                          <span className="block text-sm text-gray-200 truncate group-hover:text-white">
+                            {stat.host}
+                          </span>
+                          <span className="block text-xs text-gray-500 truncate">
+                            {getHostSubtitle(stat)}
+                          </span>
                         </span>
-                        <span className="block text-xs text-gray-500">
-                          First of {stat.count} request{stat.count !== 1 ? 's' : ''}
-                        </span>
-                      </span>
-                      {stat.firstMarker.timestamp && (
-                        <span className="text-xs text-gray-500 flex-shrink-0">
-                          {formatTimestamp(stat.firstMarker.timestamp)}
-                        </span>
-                      )}
-                    </button>
-                  ))
+                        {targetMarker.timestamp && (
+                          <span className="text-xs text-gray-500 flex-shrink-0">
+                            {formatTimestamp(targetMarker.timestamp)}
+                          </span>
+                        )}
+                      </button>
+                    )
+                  })
                 )}
               </div>
             )}
